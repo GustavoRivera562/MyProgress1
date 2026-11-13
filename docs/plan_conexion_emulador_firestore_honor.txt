@@ -1,0 +1,115 @@
+MYPROGRES — VALIDACIÓN Y PLAN PARA CONECTAR FIRESTORE EMULATOR DESDE HONOR
+Fecha: 2026-11-07
+Alcance: inspección estática y propuesta. Solo se creará este documento. No se modificaron archivos funcionales, Firebase Console, reglas ni datos. No se realizaron escrituras remotas.
+
+1. ESTADO ACTUAL INSPECCIONADO
+
+Firebase Emulator Suite:
+- firebase.json carga firestore.rules.
+- Firestore Emulator está configurado en puerto 8080.
+- No se configura host de escucha; la configuración actual no prepara el acceso desde otros dispositivos de la LAN.
+- El emulador de Authentication no está configurado.
+- Emulator UI está desactivada.
+- El script npm test:rules usa --project demo-myprogres-rules para ejecutar pruebas de reglas.
+- Según el estado comunicado, las 29 pruebas de reglas pasaron. Esta inspección no volvió a ejecutarlas.
+
+Aplicación Android:
+- app/google-services.json corresponde a com.example.myprogres y project_id myprogress-76f0c.
+- app/build.gradle.kts no declara productFlavors ni una configuración de host de emulador. Tiene build type release explícito y el debug estándar.
+- app/src/main/AndroidManifest.xml ya declara INTERNET. No hace falta agregar permisos de red para conectarse al emulador.
+- AppModule proporciona FirebaseAuth y FirebaseFirestore como singletons.
+- No aparece ninguna llamada a useEmulator(), FirebaseAuth.useEmulator() ni BuildConfig.DEBUG en el código Android.
+- SyncCoordinator sube Room a las rutas previstas y no descarga datos. Room continúa siendo la fuente local.
+- No existe .firebaserc en la raíz; el script de reglas utiliza explícitamente el proyecto demo.
+- .gitignore excluye local.properties.
+
+2. PROPUESTA DE CONFIGURACIÓN
+
+Firebase Emulator Suite:
+- Mantener firestore.rules sin cambios.
+- En firebase.json, agregar host 0.0.0.0 solo al emulador Firestore para que acepte conexiones de dispositivos de la red local. Conservar el puerto 8080.
+- Se puede habilitar Emulator UI para revisar los documentos en el computador, idealmente disponible solo en localhost. Su puerto habitual es 4000. No es necesario exponer la UI al teléfono.
+- No se necesita Auth Emulator si se conserva Firebase Authentication y se usa una cuenta de prueba. Auth Emulator queda como opción para una prueba completamente local, en puerto 9099.
+
+SDK Android:
+- En AppModule, llamar FirebaseFirestore.useEmulator(host, 8080) solo para una compilación debug.
+- Usar un host configurable localmente, no una IP permanente en código. Una opción es leer la IP desde local.properties (ignorado por .gitignore) y generar un campo BuildConfig exclusivo de debug.
+- Configurar la rama debug para fallar de forma explícita si no existe host, en vez de continuar silenciosamente hacia Firestore de producción.
+- La variante release no debe ejecutar useEmulator() y debe tener host vacío/no configurado. Comprobar BuildConfig.DEBUG además de la configuración del build type.
+- Configurar useEmulator antes de cualquier uso de FirebaseFirestore.
+- Para mantener Room como única fuente local de la app, valorar desactivar la persistencia propia de Firestore Emulator solamente en debug, antes de utilizar Firestore. No cambiar esta configuración en release.
+- No se requieren dependencias Gradle nuevas ni cambios en Room, SyncCoordinator, pantallas o diseño para establecer el endpoint.
+
+Identificador de proyecto:
+- La app obtiene project_id myprogress-76f0c de google-services.json.
+- Para una prueba desde esta app y para validar tokens reales de Firebase Authentication, iniciar el emulador con el mismo project ID:
+  firebase emulators:start --only firestore --project myprogress-76f0c
+- Este comando inicia el emulador local. No ejecutar firebase deploy ni otras operaciones de publicación. El código debug debe redirigir el SDK explícitamente a la IP local.
+- La suite automatizada de reglas puede seguir ejecutándose separadamente con demo-myprogres-rules.
+
+3. AUTHENTICATION: CUENTA DE PRUEBA O EMULADOR
+
+Opción recomendada para la primera prueba manual:
+- Mantener el proveedor FirebaseAuth actual y utilizar una cuenta de prueba ya existente, dedicada a desarrollo.
+- Conectar solamente Firestore al emulador. La app enviará el token Auth al Firestore Emulator, pero las escrituras Firestore se dirigirán al host local.
+- Evitar registrar usuarios reales, solicitar restablecimientos o usar datos personales durante la prueba.
+- Esta alternativa conserva la autenticación existente y verifica las reglas usando el UID real de la cuenta. Requiere Internet para iniciar sesión con Firebase Authentication.
+
+Opción de aislamiento completo:
+- Configurar también Auth Emulator en firebase.json (puerto 9099) y llamar FirebaseAuth.useEmulator(host, 9099) solo en debug.
+- Usar una cuenta de prueba creada dentro del Auth Emulator. Las credenciales y sesiones son locales al emulador; no crearían usuarios en Authentication de producción.
+- Esta opción requiere modificar también el proveedor Hilt de FirebaseAuth y tratar cuidadosamente la sesión persistida de la instalación actual. No borrar el almacenamiento de la app para cambiar de endpoint, porque eso borraría Room.
+- No es requisito para verificar la sincronización con Firestore si la primera alternativa es aceptable.
+
+4. ARCHIVOS QUE SE PROPONE MODIFICAR DESPUÉS DE AUTORIZACIÓN
+
+- firebase.json: host de Firestore en 0.0.0.0 y, si se desea, habilitar UI local; Auth en 9099 solo si se aprueba emular Auth.
+- app/build.gradle.kts: incorporar configuración host exclusivamente de debug mediante BuildConfig si se elige esa vía. No cambiar versiones ni agregar dependencias.
+- app/src/main/java/com/example/myprogres/data/di/AppModule.kt: redirigir Firestore a useEmulator() solo en debug, con verificación fail-closed.
+- local.properties: añadir la IP LAN del computador para desarrollo local. Está excluido de Git por .gitignore.
+- Opcional: AppModule también configuraría FirebaseAuth.useEmulator() si se elige la opción de Auth Emulator.
+- Opcional: pruebas instrumentadas de integración, solo si se desea automatizar la inspección del flujo completo. No hace falta cambiar reglas.
+
+5. PASOS DE PRUEBA DESDE EL TELÉFONO HONOR
+
+1) Conectar el computador y el HONOR a la misma red Wi-Fi privada. Evitar red de invitados, aislamiento de clientes o VPN que impida la comunicación local.
+2) En el computador, obtener la dirección IPv4 del adaptador Wi-Fi (por ejemplo 192.168.1.25). No usar localhost, 0.0.0.0 ni 10.0.2.2 en el teléfono físico. 10.0.2.2 es el alias para el emulador Android virtual, no para el HONOR.
+3) Permitir conexiones entrantes TCP al puerto 8080 en el Firewall de Windows, restringidas al perfil/red privada. Si se habilita la UI, abrirla desde el navegador del computador en localhost:4000; no es necesario exponerla a la LAN.
+4) Iniciar solo los emuladores locales con el ID de proyecto indicado. Confirmar en la consola que Firestore Emulator está escuchando en 0.0.0.0:8080 y que las reglas locales están cargadas.
+5) Compilar e instalar la variante debug configurada con la IP LAN del computador. Antes de entrar a la app, comprobar que el proveedor debug selecciona useEmulator y que release no lo hace.
+6) Iniciar sesión con la cuenta de prueba existente (o con el usuario local del Auth Emulator si se aprobó esa alternativa).
+7) Crear un workout, registrar varias series y agregar una o más tomas de agua.
+8) Confirmar que las acciones aparecen inmediatamente en Room. Mientras el servidor no confirma, los registros deben seguir PENDING.
+9) Revisar Emulator UI en el computador. Deben aparecer:
+   users/{uid}/workouts/{workoutId}
+   users/{uid}/workouts/{workoutId}/sets/{setId}
+   users/{uid}/water_intake/{intakeId}
+   Comprobar que UID y UUID coincidan con los de la sesión y los IDs locales.
+10) Después de los ACK remotos, comprobar que el contador de pendientes existente llega a cero; también consultar syncState en una prueba instrumentada si se necesita evidencia directa por fila.
+11) Repetir una escritura/reintento si se puede simular error y verificar que no se crean duplicados.
+12) Probar una desconexión: guardar con Firestore Emulator inaccesible, comprobar que Room sigue aceptando los registros y los mantiene PENDING; volver a conectar y comprobar la sincronización posterior.
+13) Compilar release y comprobar que no usa la IP local ni llama useEmulator. No probar release contra producción ni modificar reglas para esta validación.
+
+6. RIESGOS Y CONTROLES
+
+- Riesgo de enviar por error a producción: la protección principal es que todas las compilaciones debug se redirijan a Emulator y fallen si falta el host, mientras release nunca invoque useEmulator. No usar fallback desde debug a la instancia productiva.
+- Riesgo de exponer el computador: 0.0.0.0 escucha en interfaces de red. Limitar firewall al perfil privado, permitir solo el puerto necesario y apagar el emulador al terminar.
+- IP dinámica: la IP local puede cambiar; actualizar local.properties antes de la prueba.
+- Proyecto Auth/Firestore: Firebase Emulator Suite y la app deben usar project ID coherente. El project ID del comando de emulador es una identidad local; la conexión Android debe ir al endpoint LAN mediante useEmulator().
+- Sesión: si se emula Auth, cerrar sesión de la cuenta existente primero sin borrar datos de la app. Room no debe borrarse para cambiar el backend de Auth.
+- Reglas: el emulador cargará el archivo local firestore.rules. No desplegar reglas ni abrir reglas de producción.
+- Cache: Firestore SDK puede conservar su propia caché local. Deshabilitarla solo en debug evitaría confundir documentos cacheados con confirmación del emulador.
+- Esta prueba valida las escrituras en un emulador, no cuotas, índices, latencia ni otros detalles del servicio productivo.
+
+7. REFERENCIAS OFICIALES CONSULTADAS
+
+- Conectar Android a Cloud Firestore Emulator:
+  https://firebase.google.com/docs/emulator-suite/connect_firestore
+- Conectar Android a Authentication Emulator:
+  https://firebase.google.com/docs/emulator-suite/connect_auth
+- Configuración y puertos de Firebase Emulator Suite:
+  https://firebase.google.com/docs/emulator-suite/install_and_configure
+- Pruebas de Security Rules en Emulator Suite:
+  https://firebase.google.com/docs/firestore/security/test-rules-emulator
+
+FIN DEL INFORME

@@ -1,0 +1,237 @@
+MYPROGRES PENDIENTES DE VALIDACION Y PLAN PARA PASAR A DISENO Version
+1.0 | 7 de noviembre de 2026
+
+PROPOSITO Este documento consolida los pendientes del Reporte General
+del Proyecto, el Documento de Validacion de Diseno y el cierre de
+arquitectura del 07-11-2026. Su objetivo es que Codex inspeccione el
+estado real, compare el codigo con los requisitos y prepare el inicio de
+la implementacion visual sin poner en riesgo las funciones locales.
+
+INSTRUCCION PRINCIPAL Entregar este TXT a Codex junto con: -
+MyProgres_Reporte_General_del_Proyecto.txt -
+MyProgres_Documento_Validacion_Diseno.docx - El cierre de arquitectura
+del 07-11-2026.
+
+Codex debe comenzar solo con una auditoria de lectura. No modificar
+archivos hasta entregar diagnostico, diferencias y plan, y recibir
+aprobacion.
+
+1.  ESTADO ACTUAL CONFIRMADO POR INSPECCION ESTATICA
+
+Arquitectura: - Kotlin, Jetpack Compose y Material 3. - MVVM:
+MainActivity hospeda ProgressApp; ProgressViewModel expone
+ProgressUiState. - ProgressRepository es el contrato y
+OfflineProgressRepository la implementacion actual. - Hilt provee Room,
+repositorio y ErrorManager. - Room (myprogres.db) es la fuente de datos
+local. - Esquema Room version 1 exportado bajo app/schemas.
+
+Funciones locales identificadas: - Iniciar y finalizar sesiones de
+entrenamiento. - Seleccionar ejercicios y registrar series con peso y
+repeticiones. - Consultar sesion activa, resumen e historial. -
+Registrar agua y observar el total diario. - Consultar metricas de
+progreso. - Consultar diagnosticos y errores recientes.
+
+Firebase: - Google Services Plugin 4.5.0. - Firebase BoM 34.16.0. -
+Firebase Authentication y Cloud Firestore declarados. -
+google-services.json corresponde a com.example.myprogres. - La APK Debug
+compilo correctamente despues de cambiar a BoM 34.16.0. - No hay flujo
+funcional de Firebase Auth, llamadas Firestore, repositorio remoto,
+WorkManager ni sincronizacion automatica. - Firebase no debe ser un
+bloqueo para iniciar el diseno visual.
+
+2.  REGLA DE PROTECCION DEL PROYECTO
+
+No reemplazar ni alterar durante esta etapa: - Room, entidades, DAO,
+AppDatabase, esquema version 1 o migraciones. -
+OfflineProgressRepository ni las operaciones locales existentes. -
+Versiones AGP, Gradle, Kotlin, Firebase BoM o Google Services Plugin. -
+No agregar escrituras remotas, autenticacion ni sincronizacion. - No
+eliminar funcionalidades locales. - No presentar datos ficticios como
+datos reales. - No crear botones que aparenten funcionar si no existe
+una accion real. - No agregar dependencias sin justificar necesidad y
+compatibilidad. - Trabajar en cambios pequenos, pantalla por pantalla.
+
+Si una pantalla requiere logica inexistente, separar la brecha funcional
+del trabajo visual y pedir aprobacion antes de implementar esa logica.
+
+3.  DEUDA TECNICA REGISTRADA
+
+DT-01 - Hidratacion al cruzar medianoche: La observacion del total
+diario podria conservar limites del dia anterior si la app permanece
+abierta al cambiar la fecha. Revisar el impacto; registrar correccion
+separada. No bloquear el diseno salvo que impida mostrar correctamente
+el total diario.
+
+DT-02 - Numeracion concurrente de series: El numero de serie se calcula
+consultando el conteo y luego insertando; no se observo una transaccion
+que agrupe ambas operaciones. Corregir en tarea de datos separada, sin
+modificar DAO/repositorio durante el diseno.
+
+DT-03 - pendingSyncCount sin sincronizador: Hay estados syncState y
+contador pendingSyncCount, pero no existe worker ni sincronizacion. No
+mostrar sincronizacion activa, ultima sincronizacion ficticia ni estado
+remoto inventado. Si se presenta, etiquetar como “Sin configurar” o
+“Disponible en una version futura”.
+
+DT-04 - HomeScreenTest / Robolectric: Se informo anteriormente que
+HomeScreenTest.homeScreen_showsTrainingAndWaterSummary fallo antes de
+sus aserciones porque Robolectric no pudo resolver o iniciar
+androidx.activity.ComponentActivity. No se reejecuto en el cierre. Codex
+debe inspeccionar si bloquea el trabajo visual y proponer correccion
+separada. No cambiar dependencias/configuracion sin aprobacion.
+
+Distinguir siempre entre inspeccion estatica, compilacion exitosa y
+prueba ejecutada. No declarar una prueba como aprobada si no se ejecuto.
+
+4.  OBJETIVO DE LA ETAPA DE DISENO
+
+Implementar una interfaz coherente con los mockups y conectada a los
+estados y acciones que ya existen.
+
+Identidad visual: - Fondo grafito / negro. - Verde lima para acciones
+principales, progreso y destacados. - Grises y blanco para superficies,
+textos y jerarquia. - Azul para hidratacion. - Estilo deportivo premium,
+moderno, limpio y de alto contraste. - Tarjetas, indicadores y controles
+claros, sin saturar pantallas.
+
+Accesibilidad: - Contraste suficiente. - Textos legibles y escalables. -
+Areas tactiles adecuadas. - Estados que no dependan solo del color. -
+Descripciones accesibles para iconos y controles relevantes.
+
+Navegacion propuesta: Inicio | Entrenar | Progreso | Agua | Perfil
+
+Codex debe revisar la navegacion actual y proponer como adaptarla sin
+duplicar rutas ni romper acciones.
+
+5.  PANTALLAS A COMPARAR CON LOS MOCKUPS
+
+A. Inicio Resumen del dia, acceso para iniciar/continuar entrenamiento,
+hidratacion, indicadores de progreso/constancia disponibles y avatar
+proporcionado.
+
+B. Entrenamiento activo Estado de sesion, ejercicios agregados, series
+registradas, acciones para agregar series/finalizar y estados vacios,
+carga y error.
+
+C. Biblioteca de ejercicios Buscar, filtrar por grupo muscular,
+seleccionar y crear ejercicios personalizados solo si el modelo actual
+lo permite. Confirmar que la biblioteca existe realmente.
+
+D. Registro de series Peso y repeticiones por serie; registros
+anteriores como referencia si existen; editar/eliminar solo si la logica
+lo soporta; validaciones; descanso solo si ya existe temporizador
+funcional.
+
+E. Temporizador Mockup contempla 1, 2 o 3 minutos, pausar, reanudar,
+omitir y aviso final. Confirmar si existe logica y notificaciones. No
+simular funcionalidad con UI si no existe.
+
+F. Progreso Metricas respaldadas por datos actuales: historial,
+evolucion por ejercicio/periodo, volumen, frecuencia o records solo
+cuando puedan calcularse correctamente. Separar peso levantado de peso
+corporal.
+
+G. Hidratacion Total de hoy, meta solo si existe valor/configuracion
+real, acciones rapidas soportadas y estados vacios. Meta orientativa y
+ajustable, no prescripcion medica.
+
+H. Avatar Opciones conceptuales: gorila, leon, tigre u oso. Evolucion
+basada en constancia, sesiones y objetivos, no en cambios aislados de
+peso. Determinar si sera decorativo en MVP o tendra niveles; no inventar
+recompensas.
+
+I. Historial Actualmente se muestra dentro de Progreso; el mockup
+propone pantalla propia. Proponer si se mantiene integrado en Progreso
+para MVP o se crea ruta independiente. Evitar duplicar consultas.
+
+J. Perfil Mostrar solo datos/preferencias que existan realmente. No
+mostrar campos editables sin persistencia y validacion.
+
+K. Privacidad y seguridad Se puede preparar una pantalla informativa,
+pero no presentar autenticacion, nube, exportacion o eliminacion de
+cuenta como funciones implementadas.
+
+L. Diagnostico Puede mostrar Room y errores locales. No inventar estado
+de nube, ultima sincronizacion o pendientes remotos reales.
+
+M. Widget Android Widget pequeno/grande queda para etapa posterior con
+Jetpack Glance. No bloquear el diseno principal.
+
+6.  PRIORIZACION PARA AVANZAR RAPIDO
+
+FASE A - Auditoria visual y funcional (solo lectura) 1. Inventariar
+pantallas, rutas, componentes y estados existentes. 2. Comparar cada
+pantalla con los mockups. 3. Clasificar requisitos: IMPLEMENTADO,
+PARCIAL, AUSENTE o NO VERIFICADO. 4. Identificar datos reales
+disponibles en ProgressUiState. 5. Identificar acciones reales de
+ProgressViewModel. 6. Identificar componentes reutilizables. 7.
+Determinar si DT-04 bloquea o no el trabajo de UI. 8. Entregar lista
+priorizada de cambios visuales. No modificar archivos.
+
+FASE B - Fundacion visual (despues de aprobacion) 1. Definir tokens de
+color, tipografia, espaciado, formas y elevacion. 2. Consolidar tema
+Material 3 sin cambiar logica de negocio. 3. Crear/reutilizar botones,
+tarjetas, campos, chips, indicadores, barras de progreso, estados vacios
+y mensajes. 4. Adaptar navegacion principal respetando rutas existentes.
+5. Revisar contraste, escalado de texto y areas tactiles. 6. Compilar y
+revisar en dispositivo/emulador.
+
+FASE C - Rediseño por pantalla Orden sugerido: 1. Inicio. 2.
+Entrenamiento activo y registro de series. 3. Hidratacion. 4. Progreso e
+historial. 5. Perfil. 6. Biblioteca de ejercicios. 7. Temporizador,
+cuando exista logica funcional. 8. Avatar. 9. Privacidad y diagnostico.
+10. Widget como etapa posterior.
+
+Implementar una pantalla por vez, compilar y revisar antes de continuar.
+
+7.  CRITERIOS DE ACEPTACION VISUAL
+
+-   Navegacion principal funcional, sin rutas rotas.
+-   Pantallas principales coherentes con los mockups aprobados.
+-   Botones y controles ejecutan acciones reales o se muestran
+    claramente pendientes/deshabilitados.
+-   Datos provienen de ProgressUiState/repositorio o se identifican como
+    demostracion.
+-   Entrenamiento, hidratacion, progreso e historial siguen funcionando.
+-   Estados vacios, carga y error son comprensibles.
+-   Paleta y accesibilidad respetadas.
+-   La app compila y se genera APK Debug.
+-   Prueba manual de navegacion y funciones locales.
+-   Room y dependencias aprobadas permanecen intactos.
+
+No es requisito terminar Firebase, widget, avatar evolutivo ni
+temporizador para aprobar la primera iteracion visual, siempre que las
+brechas queden documentadas y no se presenten como operativas.
+
+8.  MENSAJE INICIAL PARA CODEX
+
+Lee este TXT junto con el Reporte General del Proyecto, el Documento de
+Validacion de Diseno y el cierre de arquitectura del 07-11-2026.
+
+Realiza exclusivamente la FASE A: auditoria visual y funcional. No
+modifiques archivos.
+
+Entrega: 1. Inventario de pantallas y rutas actuales. 2. Matriz
+IMPLEMENTADO / PARCIAL / AUSENTE / NO VERIFICADO por pantalla. 3.
+Comparacion con los mockups. 4. Datos y acciones reales disponibles en
+ProgressUiState y ProgressViewModel. 5. Componentes reutilizables
+existentes. 6. Brechas que requieren logica y no solo diseno. 7.
+Confirmacion de si DT-04 bloquea el diseno. 8. Plan de implementacion
+visual en cambios pequenos. 9. Archivos que propone crear/modificar en
+la primera iteracion. 10. Riesgos y pruebas necesarias.
+
+Espera aprobacion antes de modificar archivos.
+
+Cuando se apruebe la FASE B, comienza por la fundacion visual y luego
+rediseña Inicio. No intentes implementar todas las pantallas en una sola
+operacion.
+
+9.  NOTA FINAL
+
+La prioridad es pasar pronto a una interfaz visual consistente sin
+arriesgar las funciones locales ya construidas. La auditoria debe
+separar lo que existe de lo que falta, evitar rehacer trabajo y no
+convertir Firebase ni el widget en bloqueos para el diseno principal.
+
+Room sigue siendo la fuente local de verdad. Esta etapa es validacion y
+diseno de la experiencia Android, no implementacion de nube.

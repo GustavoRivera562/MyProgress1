@@ -1,0 +1,152 @@
+AUDITORÍA ESTÁTICA — FIREBASE AUTHENTICATION (CORREO Y CONTRASEÑA)
+Proyecto: MyProgres
+Fecha: 07-11-2026
+Estado: solo auditoría/propuesta; no se modificó ningún archivo del proyecto durante esta etapa.
+
+A. DIAGNÓSTICO DE LA ARQUITECTURA ACTUAL
+
+1. Inicio de la aplicación y pantalla inicial
+- app/src/main/AndroidManifest.xml declara MyProgresApplication y MainActivity como launcher.
+- MainActivity crea directamente ProgressApp con el ProgressViewModel obtenido mediante viewModels().
+- ProgressApp inicia siempre con Destination.HOME; no hay estado de carga de autenticación ni selector de ruta según sesión.
+- ProgressViewModel, al construirse, empieza a coleccionar los Flows de ProgressRepository. Esto hace que Room siga siendo consultado al inicio, independientemente de cualquier futura pantalla de autenticación.
+- MyProgresApplication extiende Application y está anotada con @HiltAndroidApp.
+
+2. Autenticación y pantalla de acceso
+- No se encontró una pantalla, ViewModel, interfaz o implementación de autenticación.
+- No aparecen referencias en código a FirebaseAuth, FirebaseUser, FirebaseApp, signInWithEmailAndPassword, createUserWithEmailAndPassword o signOut.
+- La pantalla de Perfil solo informa que autenticación todavía no está integrada.
+- El usuario confirma que el proveedor de correo y contraseña ya está habilitado en Firebase Console.
+
+3. Hilt y ubicación de FirebaseAuth
+- data/di/AppModule.kt está instalado en SingletonComponent y provee AppDatabase, ProgressRepository local y ErrorManager.
+- Conviene ampliar ese módulo o crear uno de autenticación instalado en SingletonComponent para proveer FirebaseAuth como singleton.
+- El repositorio de datos implementaría un contrato del dominio, p. ej. AuthRepository. La UI no debería depender directamente de FirebaseAuth ni FirebaseUser.
+- No se encontró FirebaseAuth en Hilt ni proveedor de Firestore (Firestore queda fuera de este objetivo).
+
+4. Room y operaciones locales
+- ProgressRepository tiene operaciones locales de entrenamiento e hidratación y está enlazado a OfflineProgressRepository.
+- La autenticación puede agregarse en paralelo a esa arquitectura sin reemplazar este contrato ni su implementación.
+- Room no guarda UID de autenticación actualmente. La base local funciona como espacio local único del dispositivo, no como almacenamiento aislado por cuenta.
+- Autenticar o cerrar sesión no debe borrar, migrar ni modificar los registros de Room.
+- La autenticación por sí sola no segmenta los registros locales. En dispositivos compartidos, distintas cuentas podrían ver los mismos registros locales si se permite continuar en modo local. Esto debe explicarse y decidirse; aislar datos locales por cuenta requeriría un diseño/migración posterior de Room, fuera del alcance actual.
+
+5. Manifiesto y conectividad
+- El manifiesto fuente app/src/main/AndroidManifest.xml no declara android.permission.INTERNET ni ACCESS_NETWORK_STATE.
+- No se encontró un artefacto accesible del manifiesto combinado en esta inspección estática; por lo tanto no se confirma si alguna dependencia aporta esos permisos al resultado fusionado.
+- Antes de usar Auth, revisar el manifiesto fusionado generado por Gradle. Si INTERNET no aparece, declararlo explícitamente en el manifiesto de app. INTERNET es un permiso normal, sin diálogo runtime; ACCESS_NETWORK_STATE es opcional si la interfaz necesita observar conectividad.
+- La implementación de Auth necesita conexión para registro/inicio de sesión. Una sesión anteriormente iniciada puede persistir localmente; iniciar por primera vez requiere red.
+
+6. Gradle y configuración Firebase existente
+- app/build.gradle.kts ya aplica Google Services y declara Firebase BoM, Firebase Auth y Cloud Firestore.
+- gradle/libs.versions.toml declara Firebase BoM 34.16.0 y Google Services Plugin 4.5.0.
+- No es necesario introducir otra dependencia para Auth con correo/contraseña.
+- No se propone cambiar BoM, Gradle, AGP, Kotlin, Google Services Plugin ni las dependencias presentes.
+
+B. ARCHIVOS QUE PROPONDRÍA CREAR O MODIFICAR TRAS APROBACIÓN
+
+Crear:
+- domain/model/AuthUser.kt: modelo pequeño con uid, email y, si se necesita mostrar, emailVerified. Nunca incluir contraseña ni token.
+- domain/repository/AuthRepository.kt: contrato para observar sesión, registrar, iniciar sesión y cerrar sesión.
+- data/repository/FirebaseAuthRepository.kt: implementación que adapta FirebaseAuth a tipos de dominio y errores seguros.
+- feature/auth/AuthViewModel.kt: estado de carga/sesión/formulario y acciones.
+- ui/screens/AuthScreen.kt (o archivos de registro/inicio separados): interfaz Compose de acceso y registro, conservando Material 3 y la paleta actual.
+- Opcionalmente: core/auth/AuthErrorMapper.kt o errores de dominio tipados, para no propagar excepciones Firebase a la UI.
+- Tests unitarios del mapper y ViewModel con FakeAuthRepository; pruebas de integración con Firebase Auth Emulator serían una etapa posterior.
+
+Modificar:
+- data/di/AppModule.kt o crear data/di/AuthModule.kt para proveer FirebaseAuth y enlazar AuthRepository.
+- ui/navigation/ProgressApp.kt para incluir un destino inicial de carga/autenticación y, según la decisión de producto, conservar modo local.
+- MainActivity.kt solo si hace falta convertirlo en host del nuevo coordinador de estado (la lógica de Auth debe vivir en ViewModel/repository, no en Activity).
+- app/src/main/AndroidManifest.xml solo si el manifiesto fusionado carece de INTERNET.
+- No modificar: Room, entidades, DAO, AppDatabase, OfflineProgressRepository, esquema, reglas Firestore, Firebase Firestore, Gradle, versiones o diseño existente de pantallas no relacionadas.
+
+C. FLUJO PROPUESTO
+
+1. Arranque:
+- Mostrar un estado de carga breve mientras FirebaseAuth completa la inicialización y el AuthStateListener notifica el estado inicial.
+- Si hay usuario autenticado: abrir ProgressApp existente.
+- Si no hay usuario: mostrar la pantalla de acceso/registro.
+- No confiar solo en leer currentUser sin un estado de “inicializando”, porque al inicio puede no haberse resuelto todavía.
+- El SDK Firebase Authentication nativo persiste la sesión entre reinicios; usar el AuthStateListener para recuperar y seguir cambios. No guardar tokens propios en Room o preferencias.
+
+2. Registro:
+- Validar formato de correo y política de contraseña en UI/dominio sin registrar valores.
+- Ejecutar createUserWithEmailAndPassword desde AuthRepository.
+- En éxito, Firebase establece al nuevo usuario como sesión actual y el listener actualiza el estado Compose.
+- Deshabilitar botones durante petición para evitar envíos duplicados y limpiar el campo de contraseña al finalizar.
+
+3. Inicio:
+- Ejecutar signInWithEmailAndPassword.
+- En éxito, el listener cambia el estado a SignedIn y se muestra la app existente.
+- No distinguir públicamente entre correo inexistente y contraseña incorrecta si email enumeration protection está habilitada; presentar mensaje genérico de credenciales inválidas.
+
+4. Cierre de sesión:
+- Ejecutar FirebaseAuth.signOut().
+- No tocar Room, no borrar la base ni limpiar datos locales.
+- Volver al acceso o al modo local según la decisión de producto.
+- Como Room no está particionado por UID, el cierre de sesión no oculta ni separa automáticamente los registros locales. En dispositivo compartido esto requiere decisión explícita.
+
+5. Offline-first:
+- Recomendación: ofrecer acceso local sin cuenta cuando no haya sesión, para no bloquear las funciones locales ni el uso sin red. La cuenta habilitaría identidad Firebase; no se conectará Firestore ni se subirá nada en esta etapa.
+- Si se exige autenticación obligatoria para abrir la app, el primer acceso no será posible sin Internet; la sesión persistida puede permitir recuperar un usuario ya autenticado.
+- La elección entre acceso obligatorio y modo local opcional cambia la pantalla inicial y debe aprobarse antes de implementar.
+
+D. ERRORES Y SEGURIDAD
+
+Errores:
+- Traducir FirebaseAuthException a errores de dominio seguros: correo inválido, credenciales no válidas, cuenta ya existente, contraseña que no cumple la política, falta de conexión y error temporal.
+- Para errores ambiguos/protección contra enumeración, usar mensajes genéricos.
+- No mostrar exception.message, códigos crudos o detalles internos directamente al usuario.
+- Manejar CancellationException propagándola, no como error normal.
+- ErrorManager actual convierte excepciones desconocidas a AppError.Unexpected, las persiste sin detalle pero pasa la excepción original a CrashReporter. El flujo Auth debería tener un mapper dedicado y no enviar excepción Firebase sin sanitizar al CrashReporter; mantener los logs libres de correo, contraseña, tokens y contenido de credenciales.
+
+Contraseñas y tokens:
+- Nunca guardar contraseña en Room, DataStore, SharedPreferences, SavedStateHandle, logs, Crashlytics ni estado persistente.
+- Mantener el texto de contraseña solo transitoriamente en memoria durante la interacción. No usar rememberSaveable para contraseña; usar remember/estado no persistente, PasswordVisualTransformation, borrarla tras éxito o cancelación y no incluirla en mensajes/excepciones.
+- No persistir manualmente ID tokens ni refresh tokens. FirebaseAuth administra la sesión nativa y su almacenamiento interno.
+- No guardar FirebaseUser completo; exponer un modelo mínimo con UID/correo.
+- Mantener email enumeration protection habilitada en Firebase Console si está disponible para el proyecto.
+- No usar Firestore ni generar escrituras remotas en esta etapa.
+
+Riesgo sobre datos locales:
+- El Room existente es único por instalación y no contiene UID propietario. Por ello autenticarse no protege registros locales frente a otro usuario de la misma instalación. No cambiar esquema ahora, pero no presentar el inicio de sesión como aislamiento de datos locales.
+
+E. PLAN DE IMPLEMENTACIÓN EN PASOS PEQUEÑOS
+
+Paso 1 — Decisiones y preflight:
+- Confirmar si el acceso será obligatorio o habrá modo local/guest.
+- Revisar manifiesto fusionado para INTERNET.
+- Confirmar política de contraseña y email enumeration protection de Console.
+- No tocar Room ni Firestore.
+
+Paso 2 — Contratos/modelos:
+- Crear AuthUser, AuthState (Initializing/SignedOut/SignedIn) y AuthRepository.
+- Definir errores tipados sin datos personales.
+
+Paso 3 — Adaptador Firebase + Hilt:
+- Proveer FirebaseAuth singleton.
+- Implementar AuthRepository sobre SDK Firebase, incluyendo listener cancelable con lifecycle correcto y operaciones suspend.
+- Mapear excepciones a errores de dominio.
+
+Paso 4 — ViewModel y Compose:
+- Crear AuthViewModel con StateFlow.
+- Añadir UI de registro/inicio con validación y loading/error accesibles.
+- Integrarla con el estado inicial en la navegación sin rediseñar las pantallas actuales.
+- Decidir destino después del signOut y comportamiento offline.
+
+Paso 5 — Verificación:
+- Compilar sin cambiar versiones.
+- Pruebas unitarias de validación, errores y transiciones de estado.
+- Pruebas de registro/inicio/cierre en Firebase Auth Emulator o proyecto de prueba, sin escribir en Firestore.
+- Revisar que contraseñas no aparezcan en logs y que Room conserve los registros antes/después de login/logout.
+
+FUENTES OFICIALES CONSULTADAS
+- Firebase Authentication Android: https://firebase.google.com/docs/auth/android/start
+- Gestión de usuarios/sesión y currentUser: https://firebase.google.com/docs/auth/android/manage-users
+- Referencia FirebaseAuth y AuthStateListener: https://firebase.google.com/docs/reference/android/com/google/firebase/auth/FirebaseAuth
+- Cuentas con contraseña y protección de enumeración: https://firebase.google.com/docs/auth/android/password-auth
+
+ESTADO DE CAMBIOS
+No se modificó ningún archivo funcional, dependencia, configuración, base Room ni regla remota.
+Este TXT documenta la auditoría y queda pendiente la aprobación del plan antes de comenzar implementación.

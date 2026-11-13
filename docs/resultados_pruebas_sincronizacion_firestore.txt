@@ -1,0 +1,54 @@
+MYPROGRES — RESULTADOS DE PRUEBAS DE SINCRONIZACIÓN
+Fecha de ejecución: 2026-11-07
+Alcance: repetición de pruebas Android conectadas y unitarias después de que Android Studio reconociera el dispositivo.
+
+1. PRUEBAS DE INSTRUMENTACIÓN ANDROID
+
+Tarea ejecutada:
+:app:connectedDebugAndroidTest
+
+Dispositivo:
+HONOR, device id AN8J6R6426001877
+
+Resultado global:
+11 aprobadas, 0 fallidas.
+
+Pruebas DAO de sincronización ejecutadas:
+- pendingQueries_areScopedToOwnerAndExcludeUnownedRows — APROBADA.
+  Confirma que las consultas incluyen pendientes del UID solicitado, excluyen otros UID y no exponen filas sin propietario.
+- workoutSyncAck_requiresMatchingUidStateAndSnapshot — APROBADA.
+  Confirma que el workout solo se marca SYNCED cuando UID, estado y valores del snapshot coinciden; repetir el ACK no vuelve a modificarlo.
+- finishingPreviouslySyncedWorkout_marksItPendingAgain — APROBADA.
+  Confirma que finalizar un workout previamente sincronizado vuelve a marcarlo PENDING.
+- setAndWaterAck_requireExactOwnerAndLocalSnapshot — APROBADA.
+  Confirma que series y agua requieren UID y snapshot exactos para cambiar a SYNCED.
+
+Las siete pruebas restantes corresponden a la suite de instrumentación ya existente de Room y manejo local de errores. También aprobaron.
+
+2. PRUEBAS UNITARIAS
+
+Tarea ejecutada:
+:app:testDebugUnitTest
+
+Resultado global:
+8 aprobadas, 0 omitidas, 1 fallida.
+
+Prueba fallida:
+com.example.myprogres.ui.HomeScreenTest > homeScreen_showsTrainingAndWaterSummary
+
+Error:
+java.lang.RuntimeException: Unable to resolve activity for Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] cmp=org.robolectric.default/androidx.activity.ComponentActivity }
+
+Ubicación reportada:
+Robolectric / ActivityScenarioRule al intentar iniciar androidx.activity.ComponentActivity. La falla ocurre durante el arranque de la Activity de prueba, antes de validar el contenido esperado de HomeScreen. Este error persiste en la segunda ejecución; no se corrigió durante esta tarea.
+
+3. VALIDACIONES ADICIONALES
+
+- La compilación de producción :app:assembleDebug y la compilación de pruebas :app:compileDebugAndroidTestKotlin habían terminado correctamente.
+- Las pruebas conectadas no realizaron escrituras en Firestore.
+- No se ejecutaron las reglas con Firebase Emulator Suite en esta repetición.
+- No se realizaron escrituras en Firestore de producción.
+- No se desplegaron reglas ni se modificó Firebase Console.
+- Por tanto, estas pruebas validan Room/DAO local y compilación, pero no confirman todavía la sincronización remota Room → Firestore.
+
+FIN DEL INFORME

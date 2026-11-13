@@ -1,0 +1,287 @@
+MYPROGRES
+REPORTE GENERAL DEL PROYECTO
+Diseño • Funcionalidad • Arquitectura • Seguridad • Gestión de errores
+Versión 1.0  |  Noviembre 2026  |  Estado: definición y planificación
+1. Resumen ejecutivo
+MyProgres es una aplicación móvil Android orientada al seguimiento del entrenamiento de fuerza, el progreso personal y la hidratación. Busca que el usuario registre sus ejercicios y series de forma rápida, consulte su evolución, gestione descansos y mantenga un control diario del consumo de agua. La experiencia combinará una interfaz deportiva de aspecto premium con almacenamiento local y sincronización en la nube.
+La aplicación se diseñará con enfoque offline-first: las operaciones principales deberán funcionar sin conexión y guardarse primero en el dispositivo mediante Room. Cuando exista conectividad, un proceso de sincronización enviará los cambios pendientes a Firebase. La seguridad se incorporará desde el diseño mediante autenticación, autorización por usuario, validación de datos, protección de credenciales, reglas de Firebase y pruebas específicas.
+2. Objetivos del producto
+Registrar entrenamientos, ejercicios, pesos y repeticiones por serie.
+Administrar los tiempos de descanso con temporizador y aviso al finalizar.
+Registrar el consumo de agua y visualizar el avance respecto de una meta diaria.
+Mostrar historial y evolución del rendimiento a lo largo del tiempo.
+Incorporar un avatar animal personalizable que evolucione por constancia, fuerza y objetivos.
+Permitir el uso sin Internet y sincronizar los datos al recuperar conectividad.
+Proteger la cuenta y los datos personales, evitando accesos entre usuarios.
+Detectar, registrar y comunicar errores de manera clara y segura.
+3. Usuarios y alcance funcional
+El usuario principal es una persona que entrena fuerza y quiere llevar un registro sencillo, consistente y visual de su actividad. La aplicación no reemplaza asesoría médica, nutricional ni profesional del entrenamiento. Los objetivos de hidratación y las métricas serán orientativos y deberán explicarse como tales.
+3.1 Funcionalidades principales
+4. Diseño y experiencia de usuario
+La identidad visual definida es deportiva, moderna y de alto contraste. Debe transmitir energía, claridad y enfoque en el progreso, sin saturar las pantallas.
+4.1 Mapa de pantallas
+4.2 Avatar y motivación
+Se consideran avatares de tipo animal, por ejemplo gorila, león, tigre u oso. La evolución deberá premiar hábitos sostenibles: constancia, sesiones completadas, progresión de fuerza y objetivos personales. Una variación aislada del peso corporal no debe degradar injustamente al avatar ni convertir la experiencia en una fuente de presión.
+5. Arquitectura y tecnologías
+La solución propuesta utiliza Kotlin y Jetpack Compose para la aplicación Android, Room sobre SQLite para persistencia local y Firebase para identidad y sincronización remota.
+5.1 Organización lógica propuesta
+MYPROGRES/
+├── data/
+│   ├── local/          # Room, entidades y DAO
+│   ├── remote/         # Firebase y servicios remotos
+│   └── repository/     # Repositorios y coordinación local/remota
+├── domain/             # Casos de uso y reglas de negocio
+├── monitoring/         # ErrorManager, CrashReporter, registro seguro
+├── workers/            # SyncWorker y tareas persistentes
+└── ui/
+    ├── screens/        # Pantallas
+    ├── components/     # Componentes reutilizables
+    └── navigation/     # Navegación
+6. Funcionamiento offline y online
+La estrategia propuesta es offline-first y Room-first: Room será la fuente principal de verdad para la experiencia en el dispositivo; Firestore actuará como destino remoto de sincronización. Firestore también ofrece persistencia offline en Android, pero mantener una política local explícita permite controlar mejor las operaciones, estados, reintentos y conflictos.
+El usuario registra una serie, consumo de agua o sesión.
+La aplicación valida los datos y los guarda primero en Room.
+Si la escritura local termina correctamente, la interfaz confirma el registro.
+La operación queda marcada como pendiente de sincronización si todavía no se ha confirmado en la nube.
+WorkManager detecta que hay conectividad y procesa la cola de operaciones pendientes.
+La aplicación envía cada operación con un identificador único e idempotente.
+Al recibir confirmación remota, actualiza el estado local a sincronizado.
+Si falla la conexión, conserva el dato local y programa un nuevo intento.
+7. Seguridad de la información
+La seguridad se aplicará en capas. La validación visual mejora la experiencia, pero no sustituye la validación del repositorio ni las reglas de autorización del servidor.
+7.1 Identidad, autenticación y sesiones
+Usar Firebase Authentication para gestionar identidad y autenticación.
+Asociar los datos de cada cuenta al UID autenticado.
+No almacenar contraseñas ni tokens manualmente en Room, archivos de texto o registros.
+Implementar recuperación de cuenta y cierre de sesión.
+Al cerrar sesión, impedir que la siguiente cuenta acceda a datos privados de la sesión anterior; definir limpieza o aislamiento de cachés locales.
+Considerar reautenticación para operaciones especialmente sensibles, si el alcance lo requiere.
+7.2 Autorización y aislamiento de datos
+Cada registro remoto debe pertenecer a un usuario autenticado.
+Las reglas de Firestore deben comparar el UID autenticado con el propietario del documento.
+El cliente no debe poder asignar libremente el propietario de un registro.
+Probar lectura, creación, modificación y eliminación con usuarios distintos.
+Aplicar el mismo aislamiento en las consultas locales y al cambiar de cuenta.
+7.3 Ejemplo conceptual de regla
+match /users/{userId}/{document=**} {
+  allow read, write: if request.auth != null
+                     && request.auth.uid == userId;
+}
+Este fragmento es ilustrativo y no debe copiarse como política final sin adaptarlo a la estructura real de Firestore. Las reglas definitivas también deben validar campos, tipos, tamaños y operaciones permitidas.
+7.4 Validación de entradas
+7.5 Dispositivo, almacenamiento y comunicaciones
+Utilizar HTTPS/TLS para comunicaciones remotas.
+No incluir claves privadas ni secretos de servidor dentro de la aplicación.
+Usar Android Keystore para proteger material criptográfico local cuando sea necesario.
+Guardar preferencias sensibles mediante mecanismos de almacenamiento adecuados.
+Solicitar únicamente permisos Android necesarios para las funciones reales.
+Mantener dependencias y SDK actualizados y revisar vulnerabilidades conocidas.
+Evitar mostrar tokens, rutas internas, stack traces o detalles de base de datos en mensajes visibles.
+7.6 App Check y límites de protección
+Firebase App Check complementa Authentication y Security Rules: ayuda a reducir solicitudes desde clientes no autorizados, pero no demuestra que el usuario tenga permiso para acceder a un dato. La autorización sigue dependiendo de reglas correctamente diseñadas. Ninguna de estas medidas garantiza invulnerabilidad; se requiere pruebas, monitoreo y mantenimiento.
+7.7 Privacidad
+Recolectar únicamente los datos necesarios para prestar las funciones.
+No incluir nombre, correo, peso, altura, tokens ni otra información sensible en Analytics o Crashlytics.
+Documentar qué datos se recopilan, con qué finalidad, dónde se almacenan y cuánto tiempo se conservan.
+Definir un flujo de cierre de cuenta y eliminación de datos asociados.
+Evitar información sensible en notificaciones visibles en la pantalla bloqueada.
+Preparar política de privacidad y revisar requisitos legales aplicables antes de publicar.
+8. Gestión y reporte de errores
+Se implementará un manejo centralizado para clasificar errores, informar al usuario y conservar información técnica mínima para diagnóstico. Los errores no deben provocar pérdida silenciosa de datos.
+8.1 Categorías de errores
+8.2 Canales de comunicación
+Interfaz: Snackbar, diálogo o texto junto al campo, con lenguaje claro y acción sugerida.
+Registro local: tabla ErrorLog en Room para eventos que requieren seguimiento.
+Monitoreo remoto: Crashlytics para cierres, ANR y excepciones no fatales seleccionadas.
+Centro de diagnóstico: vista técnica para desarrollo o soporte, sin exponer detalles al usuario final.
+8.3 Registro local ErrorLog
+No guardar contraseñas, tokens, correos, nombres, peso, altura, contenido privado ni trazas completas en ErrorLog. Crashlytics gestionará la información de diagnóstico de excepciones, también con minimización de datos. El propio registrador debe tener un mecanismo de fallback para evitar ciclos si falla al intentar registrar un error.
+8.4 Responsabilidad de las herramientas
+9. Pruebas funcionales y de seguridad
+10. Centro de diagnóstico y experiencia ante errores
+Se propone una pantalla de diagnóstico orientada a desarrollo/soporte que permita revisar:
+Estado de la base local Room.
+Estado de autenticación y sesión, sin mostrar tokens.
+Conectividad disponible o no disponible.
+Cantidad de registros pendientes de sincronización.
+Última sincronización correcta.
+Cantidad de errores pendientes y últimos códigos técnicos.
+Acción para generar un reporte de diagnóstico sanitizado.
+Para el usuario común, los mensajes deben ser comprensibles. Ejemplo: “No se pudo sincronizar. Tus datos siguen guardados en este dispositivo y volveremos a intentarlo cuando haya conexión”.
+11. Plan de implementación por etapas
+12. Decisiones pendientes y riesgos
+Riesgos a controlar: pérdida de datos por confirmar antes de persistir; filtración entre cuentas por reglas incorrectas; duplicación por reintentos no idempotentes; exposición accidental de información en logs; conflictos de sincronización; permisos Android excesivos; dependencias desactualizadas.
+13. Criterios generales de aceptación
+El usuario puede registrar y consultar entrenamientos sin conexión.
+Cada serie almacena peso y repeticiones de forma independiente.
+El temporizador ofrece las opciones de descanso acordadas y avisa al finalizar.
+El usuario puede registrar agua y consultar su avance diario.
+El historial refleja los registros guardados.
+La sincronización no genera duplicados ni elimina silenciosamente datos locales.
+Los datos de un usuario no son accesibles para otro.
+Los errores se comunican sin filtrar detalles técnicos sensibles.
+Las pruebas de reglas y permisos se ejecutan antes de publicar.
+El usuario puede gestionar su cuenta y conocer cómo se usan y eliminan sus datos.
+14. Referencias oficiales para implementación
+Firebase Authentication para Android: https://firebase.google.com/docs/auth/android/start
+Cloud Firestore: acceso offline: https://firebase.google.com/docs/firestore/manage-data/enable-offline
+Firebase Security Rules: https://firebase.google.com/docs/firestore/security/get-started
+Firebase App Check: https://firebase.google.com/docs/app-check
+Firebase Crashlytics para Android: https://firebase.google.com/docs/crashlytics/android/get-started
+Firebase Emulator Suite: https://firebase.google.com/docs/emulator-suite
+Android Room: https://developer.android.com/training/data-storage/room
+Android WorkManager: https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work
+Android Keystore: https://developer.android.com/privacy-and-security/keystore
+Android Logcat: https://developer.android.com/studio/debug/logcat
+Jetpack Glance: https://developer.android.com/develop/ui/compose/glance
+15. Cierre
+MyProgres se plantea como una aplicación de entrenamiento centrada en el usuario, con una experiencia visual clara, registro confiable y capacidad de operar sin conexión. La prioridad técnica es construir una base sólida: persistencia local, aislamiento de datos, validación en capas, sincronización segura y gestión centralizada de errores. Las funciones visuales y motivacionales se integrarán sobre esa base, con pruebas verificables antes de cada etapa de publicación.
+
+Propósito del documento  Consolidar las decisiones y requisitos conversados para MyProgres. Este documento sirve como línea base para diseñar, desarrollar, probar y validar la aplicación.
+
+
+Principio central  La aplicación debe confirmar una operación solo cuando haya sido guardada correctamente en el almacenamiento local. La sincronización remota puede quedar pendiente sin impedir el uso offline.
+
+
+Módulo | Función | Comportamiento esperado
+Entrenamiento | Crear sesión y seleccionar ejercicios. | Permitir iniciar, continuar y finalizar una sesión.
+Series | Registrar peso y repeticiones por serie. | Guardar cada serie individualmente y asociarla al ejercicio y sesión.
+Descanso | Elegir 1, 2 o 3 minutos. | Ejecutar temporizador y emitir aviso al terminar.
+Hidratación | Registrar agua consumida. | Mostrar cantidad acumulada y avance hacia meta diaria.
+Progreso | Consultar historial y evolución. | Mostrar tendencias de rendimiento y constancia.
+Avatar | Elegir animal y personalizarlo. | Evolucionar mediante constancia, fuerza y metas; no castigar fluctuaciones aisladas de peso.
+Widget | Acceso rápido desde Android. | Mostrar entrenamiento activo, descanso y estado de hidratación cuando esté disponible.
+Perfil | Gestionar cuenta y preferencias. | Editar preferencias, notificaciones, privacidad y sesión.
+Diagnóstico | Consultar estado técnico. | Mostrar conectividad, estado de sincronización y errores pendientes de forma controlada.
+
+
+Elemento | Definición acordada
+Fondo principal | Grafito / negro.
+Color de acento | Verde lima para acciones principales, progreso y elementos destacados.
+Colores secundarios | Grises y blanco para jerarquía, textos y superficies.
+Hidratación | Azul para representar agua y consumo.
+Estilo | Deportivo premium, limpio, con tarjetas, indicadores y controles fáciles de usar.
+Accesibilidad | Contraste suficiente, textos legibles, áreas táctiles adecuadas y estados que no dependan solo del color.
+
+
+Pantalla | Contenido esperado
+Inicio | Resumen del día: entrenamiento, hidratación, actividad y acceso rápido.
+Entrenar | Sesión activa, ejercicios agregados y acciones para registrar series.
+Biblioteca de ejercicios | Listado y búsqueda de ejercicios disponibles.
+Registro de series | Peso, repeticiones y confirmación por serie.
+Temporizador | Descanso seleccionado, cuenta regresiva y aviso al finalizar.
+Progreso | Historial, métricas y evolución.
+Agua | Meta diaria orientativa, consumo acumulado y registro rápido.
+Avatar | Animal seleccionado, personalización y evolución.
+Historial | Sesiones anteriores y detalle de registros.
+Perfil y privacidad | Cuenta, preferencias, notificaciones y gestión de datos.
+Centro de diagnóstico | Estado de almacenamiento, nube, sincronización y errores.
+Widget Android | Resumen compacto de entrenamiento, descanso e hidratación.
+
+
+Tecnología | Responsabilidad prevista
+Kotlin | Lenguaje principal.
+Jetpack Compose | Construcción de pantallas y componentes de interfaz.
+Room / SQLite | Persistencia local y consultas estructuradas.
+Firebase Authentication | Registro, inicio de sesión y gestión de identidad.
+Cloud Firestore | Almacenamiento remoto y sincronización de datos.
+Firebase App Check | Mitigar solicitudes provenientes de clientes no legítimos.
+Firebase Security Rules | Autorización de acceso a documentos por usuario y validación en servidor.
+WorkManager | Trabajo persistente de sincronización y reintentos.
+Jetpack Glance AppWidget | Widget de acceso rápido para Android.
+Crashlytics | Captura y análisis de fallos y excepciones.
+Firebase Emulator Suite | Pruebas locales de reglas y servicios Firebase.
+
+
+Estado | Significado
+PENDING | Guardado localmente; pendiente de envío.
+SYNCED | Confirmado en el almacenamiento remoto.
+FAILED | Falló el intento actual; puede requerir reintento o revisión.
+CONFLICT | Se detectaron cambios incompatibles que requieren una política de resolución.
+
+
+Decisión pendiente  Definir la política exacta de resolución de conflictos cuando un mismo registro se modifique desde dos dispositivos. No se debe depender sin análisis de una sobrescritura automática.
+
+
+Dato | Regla inicial | Observación
+Peso levantado | Numérico, finito, no negativo y con rango razonable. | Definir límites configurables y evitar falsos positivos para cargas altas.
+Repeticiones | Entero mayor que cero. | Rechazar decimales, negativos y valores absurdos.
+Descanso | Solo opciones de 1, 2 o 3 minutos. | Validar también en la lógica de negocio.
+Agua | Cantidad positiva y dentro de un rango razonable. | Permitir corregir registros; evitar metas presentadas como consejo médico.
+Nombre de ejercicio | Obligatorio, longitud limitada y texto normalizado. | Rechazar caracteres de control y limitar tamaño.
+Fecha | Fecha y hora válidas. | Controlar valores imposibles y zona horaria.
+Identificadores | Generados por la aplicación. | No aceptar IDs arbitrarios como prueba de propiedad.
+
+
+Categoría | Ejemplos | Respuesta
+Aplicación | Cierre inesperado, pantalla bloqueada, excepción Kotlin. | Mensaje simple y captura técnica con Crashlytics.
+Base de datos | Fallo de Room, escritura o lectura. | No confirmar la operación; registrar el fallo local si es posible.
+Conectividad | Sin Internet, timeout, servicio no disponible. | Mantener datos locales y reintentar.
+Seguridad | Acceso no autorizado, regla denegada, sesión inválida. | Rechazar operación y registrar evento sanitizado.
+Validación | Peso inválido, repeticiones no enteras, campos vacíos. | Explicar el campo que debe corregirse.
+Sincronización | Duplicados, conflicto o error remoto. | Conservar estado pendiente y reintentar o solicitar resolución.
+
+
+Campo | Uso
+errorId | Identificador único del evento.
+createdAt | Fecha/hora del evento.
+module | Módulo afectado: TRAINING, WATER, AUTH, SYNC, DATABASE.
+type | Categoría controlada del error.
+code | Código interno estable, por ejemplo DB_001.
+severity | Nivel: LOW, MEDIUM, HIGH o CRITICAL.
+operation | Acción que falló: SAVE_SET, SYNC_RECORD, etc.
+safeMessage | Descripción técnica sanitizada, sin datos privados.
+appVersion | Versión de la aplicación.
+syncState | PENDING, SENT, FAILED o IGNORED.
+attempts | Cantidad de intentos de envío.
+
+
+Herramienta | Uso correcto
+ErrorManager | Clasifica y coordina el registro de errores.
+ErrorLogDao / Room | Persiste eventos locales y consulta pendientes.
+CrashReporter | Abstracción para reportar excepciones seleccionadas a Crashlytics.
+Crashlytics | Monitorea crashes, ANR y excepciones no fatales.
+WorkManager | Envía registros permitidos cuando hay red y aplica reintentos.
+Logcat | Diagnóstico durante desarrollo; no es el sistema de auditoría de producción.
+
+
+ID | Escenario | Resultado esperado
+T01 | Desactivar Internet y registrar varias series. | Se guardan en Room y siguen disponibles al reiniciar la app.
+T02 | Restablecer Internet. | Se sincronizan pendientes sin duplicados.
+T03 | Firebase no disponible. | El usuario puede seguir registrando localmente.
+T04 | Falla la escritura local. | La app no confirma un registro que no quedó guardado.
+T05 | Ingresar peso negativo o repeticiones decimales. | La validación rechaza el dato y explica el motivo.
+T06 | Usuario A intenta leer datos del usuario B. | Firebase rechaza el acceso.
+T07 | Se produce timeout al sincronizar. | WorkManager reintenta según política.
+T08 | Se produce una excepción no fatal. | Se registra sin incluir información privada.
+T09 | Se cambia de cuenta en el mismo dispositivo. | No se mezclan ni exponen datos locales de otra cuenta.
+T10 | Se modifica el mismo registro desde dos dispositivos. | Se aplica la política de conflicto definida.
+T11 | Se solicita eliminar la cuenta. | Se ejecuta el flujo de eliminación y se documenta el resultado.
+T12 | Se intenta acceder sin sesión válida. | La operación protegida se rechaza.
+
+
+Etapa | Trabajo | Criterio de salida
+1. Base funcional | Proyecto Android, navegación, tema visual y validaciones de formularios. | Flujos principales navegables y datos inválidos bloqueados.
+2. Persistencia local | Room, entidades, DAO y repositorios. | Entrenamientos y agua persisten tras cerrar y abrir la app.
+3. Gestión de errores | ErrorLogEntity, ErrorLogDao, ErrorManager y mensajes UI. | Errores clasificados y registrados sin datos sensibles.
+4. Autenticación | Firebase Authentication y aislamiento de perfiles. | Cada usuario accede solo a su información.
+5. Nube y seguridad | Firestore, Security Rules y App Check. | Reglas probadas con usuarios y escenarios negativos.
+6. Sincronización | Outbox, WorkManager, idempotencia y conflictos. | Offline/online probado sin pérdida ni duplicación.
+7. Funciones complementarias | Temporizador, hidratación, avatar, historial y widget. | Módulos funcionales integrados.
+8. Calidad y publicación | Pruebas, privacidad, accesibilidad, rendimiento y distribución. | Lista de verificación de lanzamiento aprobada.
+
+
+Tema | Pendiente de definir
+Cuenta | Métodos de inicio de sesión: correo/contraseña, Google u otros.
+Límites de validación | Rangos máximos razonables para peso, agua, texto y otros campos.
+Hidratación | Fórmula orientativa, personalización y aclaración de que no es consejo médico.
+Sincronización | Política de conflictos entre dispositivos y retención de cola de operaciones.
+Datos locales | Estrategia de aislamiento, borrado o cifrado de datos al cerrar sesión.
+Privacidad | Política de privacidad, retención, exportación y eliminación de datos.
+Notificaciones | Permisos, horarios, frecuencia y controles del usuario.
+Avatar | Reglas de evolución, niveles, recompensas y personalización.
+Widget | Datos visibles y actualización permitida por Android.
+Publicación | Requisitos de Google Play, pruebas, firma y monitoreo de producción.
+
+
+Estado del documento  Este reporte consolida lo conversado y representa una especificación inicial. No significa que todas las funciones o controles ya estén implementados; cada punto deberá desarrollarse, probarse y validarse.

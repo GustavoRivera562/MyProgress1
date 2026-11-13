@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "864987363112",
+    "project_id": "myprogress-76f0c",
+    "storage_bucket": "myprogress-76f0c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:864987363112:android:9a40a750e60b5a08a2c21d",
+        "android_client_info": {
+          "package_name": "com.example.myprogres"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJP67mZ1fchb3Yp_ZoRB0YwBNn9bHYHvk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

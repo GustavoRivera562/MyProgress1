@@ -1,0 +1,60 @@
+REVISION DE CAMBIOS — MyProgres
+Fecha de revisión: 2026-11-07
+Alcance: inspección de solo lectura del árbol actual y del historial disponible en esta conversación.
+No se ejecutó Git. No se revirtió ni aceptó ningún archivo. No se cambió código ni configuración.
+Única creación de esta revisión: este archivo TXT.
+
+LIMITACIÓN DE EVIDENCIA
+El entorno no expone el panel “Changes”, no tiene Git disponible y no existe una copia/snapshot del estado inicial contra la que comparar bytes. Tampoco se encontraron carpetas locales .agents/ ni .codex/ dentro del proyecto. El historial de esta conversación sí documenta acciones del agente: la integración Firebase anterior tocó gradle/libs.versions.toml, build.gradle.kts (raíz) y app/build.gradle.kts; el cambio más reciente modificó exclusivamente firebaseBom de 35.1.0 a 34.16.0. El archivo app/google-services.json fue colocado por el usuario. firebase-debug.log registra un intento de Firebase CLI.
+Por tanto, las siguientes 33 rutas son un inventario reconstruido de los archivos de aplicación/configuración visibles que probablemente conforman el conjunto indicado por el usuario; el tipo “probable” no equivale a estado VCS confirmado. La lista debe cotejarse con una captura/listado del panel Changes para certificar que coincide exactamente con esos 33.
+
+FORMATO
+Ruta | Tipo estimado | Motivo/evidencia | Área | Conservar
+
+01 app/src/main/java/com/example/myprogres/ui/theme/Type.kt | creado (probable, no cotejado) | Tipografía Compose | UI común | Sí, si la app usa este tema.
+02 app/src/main/java/com/example/myprogres/ui/theme/Color.kt | creado (probable, no cotejado) | Colores del tema | UI común | Sí, si la app usa este tema.
+03 app/src/main/java/com/example/myprogres/ui/theme/Theme.kt | creado (probable, no cotejado) | Tema Compose Material | UI común | Sí.
+04 app/src/main/java/com/example/myprogres/ui/screens/Screens.kt | creado (probable, no cotejado) | Pantallas y componentes; incluye entrenamiento, agua, progreso/diagnóstico | Entrenamiento, hidratación, historial | Sí, base de la UI.
+05 app/src/main/java/com/example/myprogres/ui/navigation/ProgressApp.kt | creado (probable, no cotejado) | Navegación y barra de secciones | Entrenamiento, hidratación, historial | Sí.
+06 app/src/main/java/com/example/myprogres/core/error/AppResult.kt | creado (probable, no cotejado) | Modelo central de resultados/errores | Errores/diagnóstico | Sí.
+07 app/src/main/java/com/example/myprogres/core/error/ErrorManager.kt | creado (probable, no cotejado) | Gestión de errores | Errores/diagnóstico | Sí.
+08 app/src/main/java/com/example/myprogres/core/error/CrashReporter.kt | creado (probable, no cotejado) | Registro/reporte local de errores | Errores/diagnóstico | Sí; revisar antes de agregar envío remoto.
+09 app/src/main/java/com/example/myprogres/data/di/AppModule.kt | creado (probable, no cotejado) | Inyección de dependencias Room/Repository | Room y app local | Sí.
+10 app/src/main/java/com/example/myprogres/data/local/dao/AppDaos.kt | creado (probable, no cotejado) | Consultas Room de entrenamientos, sets, agua y errores | Room; entrenamiento, hidratación, historial | Sí.
+11 app/src/main/java/com/example/myprogres/data/local/entity/Entities.kt | creado (probable, no cotejado) | Entidades Room workouts, workout_sets, water_intake y error_logs | Room; entrenamiento, hidratación, historial | Sí.
+12 app/src/main/java/com/example/myprogres/data/local/AppDatabase.kt | creado (probable, no cotejado) | Definición Room, versión 1 | Room | Sí.
+13 app/src/main/java/com/example/myprogres/data/repository/OfflineProgressRepository.kt | creado (probable, no cotejado) | Escritura/observación offline; conecta DAO con dominio | Entrenamiento, hidratación, historial, Room | Sí; es fuente local principal.
+14 app/src/main/java/com/example/myprogres/domain/model/ProgressModels.kt | creado (probable, no cotejado) | Modelos de dominio | Entrenamiento, hidratación, historial | Sí.
+15 app/src/main/java/com/example/myprogres/domain/repository/ProgressRepository.kt | creado (probable, no cotejado) | Contrato del repositorio local | Room y funcionalidades locales | Sí.
+16 app/src/main/java/com/example/myprogres/domain/validation/ProgressInputValidator.kt | creado (probable, no cotejado) | Validación de entradas | Entrenamiento/hidratación | Sí.
+17 app/src/main/java/com/example/myprogres/feature/progress/ProgressViewModel.kt | creado (probable, no cotejado) | Estado y acciones de pantalla | Entrenamiento, hidratación, historial | Sí.
+18 app/src/main/java/com/example/myprogres/MainActivity.kt | modificado (historial indica que ya existía y tenía errores; diff inicial no disponible) | Entrada de la app y Compose | App/UI local | Sí.
+19 app/src/main/java/com/example/myprogres/MyProgresApplication.kt | creado (probable, no cotejado) | Inicialización de aplicación/DI | App local | Sí.
+20 app/src/test/java/com/example/myprogres/ui/HomeScreenTest.kt | creado/modificado (no cotejado) | Prueba de UI; historial indica un fallo Robolectric de ComponentActivity | UI/entrenamiento/hidratación | Sí; el fallo debe seguir documentado.
+21 app/src/test/java/com/example/myprogres/domain/validation/ProgressInputValidatorTest.kt | creado/modificado (no cotejado) | Pruebas de validación | Entrenamiento/hidratación | Sí.
+22 app/src/test/java/com/example/myprogres/testing/TestErrorLogRule.kt | creado (probable, no cotejado) | Regla de logs de error en pruebas unitarias | Errores/diagnóstico | Sí si se conservan esas pruebas.
+23 app/src/test/java/com/example/myprogres/ExampleUnitTest.kt | estado indeterminado | Prueba unitaria básica/template | Ninguna funcionalidad directa | Conservar mientras se use; verificar si es plantilla redundante.
+24 app/src/androidTest/java/com/example/myprogres/testing/TestErrorLogRule.kt | creado (probable, no cotejado) | Regla de logs en pruebas instrumentadas | Errores/diagnóstico | Sí si se conservan esas pruebas.
+25 app/src/androidTest/java/com/example/myprogres/HiltTestRunner.kt | creado (probable, no cotejado) | Inicialización Hilt para instrumentación | Pruebas/DI | Sí mientras haya pruebas Hilt.
+26 app/src/androidTest/java/com/example/myprogres/ExampleInstrumentedTest.kt | estado indeterminado | Prueba instrumentada básica/template | Ninguna funcionalidad directa | Conservar mientras se use; verificar redundancia.
+27 app/src/androidTest/java/com/example/myprogres/RoomAndErrorLoggingTest.kt | creado (probable, no cotejado) | Prueba Room y registro de errores | Room/errores; locales | Sí.
+28 app/schemas/com.example.myprogres.data.local.AppDatabase/1.json | generado | Esquema exportado por Room/KSP; corresponde a Room versión 1 | Room | Sí; es evidencia/versionado útil para migraciones.
+29 gradle/libs.versions.toml | modificado | Catálogo de plugins/dependencias Firebase. Historial confirma: primera integración Firebase; última operación solo cambió firebaseBom 35.1.0 -> 34.16.0 | Firebase y dependencias del proyecto | Sí para mantener el BoM probado.
+30 build.gradle.kts | modificado | Declara Google Services Plugin en el nivel raíz según la integración aprobada | Firebase/Gradle | Sí mientras se mantenga Firebase.
+31 app/build.gradle.kts | modificado | Aplica Google Services y Firebase BoM/Auth/Firestore; también conserva Room y funcionalidades locales. No se tocó en la última operación | Firebase y Room/compilación | Sí para mantener integración aprobada.
+32 app/google-services.json | creado/agregado por el usuario (según el historial) | Configuración de app Firebase; package_name visible como com.example.myprogres | Firebase | Sí si corresponde al proyecto activo; tratar como configuración privada del proyecto y no publicar sin revisión.
+33 docs/error-log.md | creado por el agente en la conversación | Documenta incompatibilidad Firebase previa, fallo Robolectric y permisos CLI | Documentación/QA | Sí como registro; actualizar estado cuando haya evidencia nueva.
+
+OBSERVACIONES ADICIONALES (NO CONTADAS ENTRE LAS 33 RUTAS)
+- firebase-debug.log: generado/modificado por Firebase CLI durante el intento de init auth. No es código de la app ni necesario para compilar; puede contener datos personales/de sesión en texto de diagnóstico. Recomendación: no incluir en repositorios públicos ni compartir el contenido sin depurarlo. No se modificó en esta auditoría.
+- app/build/outputs/apk/debug/app-debug.apk y demás contenido bajo app/build/: salida generada por Gradle. La APK se confirmó en la revisión anterior (17,920,743 bytes). No es fuente ni debe confundirse con una modificación funcional.
+- .idea/caches, .kotlin/sessions y archivos de estado local del IDE son candidatos a artefactos generados/locales, pero no se verificó que figuren entre los 33.
+- El archivo de esquema visible mantiene base Room versión 1 con tablas workouts, workout_sets, water_intake y error_logs. No hay evidencia en el historial reciente de que Firebase haya cambiado entidades, DAO, AppDatabase, repositorio offline, datos del usuario ni versión Room.
+- La integración actual configura SDK Firebase, pero no implementa autenticación en UI, repositorio Firestore ni sincronización automática. La persistencia funcional observada continúa siendo Room/offline-first.
+- El último cambio aprobado/editado por el agente fue solo gradle/libs.versions.toml. Gradle Sync y :app:assembleDebug finalizaron correctamente. La compilación puede generar archivos bajo app/build/, pero no alteró archivos fuente de Room.
+
+DECISIÓN PRÁCTICA
+Conservar como base local los archivos de Room, Repository, ViewModel, pantallas y pruebas que se usan. Conservar los tres cambios Gradle y google-services.json si se quiere mantener la integración Firebase preparada. Conservar error-log.md para QA. Tratar Firebase CLI log y outputs/build/ como diagnósticos/artefactos generados, no como código fuente.
+Esta recomendación no acepta cambios automáticamente.
+
+Para certificar la lista exacta de 33 y los tipos creado/modificado contra una línea base byte a byte, hace falta el listado/captura del panel Changes o un snapshot inicial. Sin esa evidencia, los estados estimados de las rutas Kotlin y pruebas no se deben presentar como diff confirmado.

@@ -1,0 +1,99 @@
+MYPROGRES — INSPECCIÓN Y PLAN PARA SINCRONIZACIÓN ROOM → FIRESTORE
+Fecha: 2026-11-07
+Alcance: inspección estática y propuesta de implementación. No se modificó código funcional ni configuración. No se realizaron escrituras en Firestore ni despliegue de reglas.
+
+1. ESTADO ACTUAL
+
+Autenticación y Firebase:
+- Firebase Authentication está integrado con correo y contraseña. FirebaseAuth se proporciona como Singleton en Hilt.
+- La aplicación observa cambios de sesión y exige autenticación para mostrar las pantallas principales.
+- Google Services Plugin y google-services.json están configurados; el identificador de paquete es com.example.myprogres.
+- Firebase BoM 34.16.0, Firebase Authentication y Cloud Firestore ya están declarados en Gradle. No se requiere agregar dependencias para la propuesta.
+
+Room:
+- AppDatabase está en versión 2 y conserva las tablas workouts, workout_sets, water_intake y error_logs.
+- WorkoutEntity y WaterIntakeEntity tienen ownerUid. WorkoutSetEntity se vincula al workout por workoutId y su acceso se restringe a través del propietario del workout.
+- OfflineProgressRepository mantiene los registros locales y valida el UID para sus operaciones. Al crear workouts, sets y registros de agua se usa UUID local.
+- Las entidades de progreso tienen syncState, que inicia como PENDING. Actualmente no hay subida remota ni DAO para seleccionar/confirmar pendientes.
+- error_logs es almacenamiento técnico local y no debe sincronizarse.
+
+Firestore:
+- La dependencia está presente, pero aún no hay proveedor FirebaseFirestore en Hilt, DTOs, fuente de datos remota ni coordinador de sincronización.
+- Existe firestore.rules local con rutas bajo users/{uid} y validación de campos. Su suite de 29 pruebas no está ejecutada todavía.
+- El estado informado para las reglas de producción es denegar todas las operaciones. Por tanto, no se puede confirmar una escritura real mientras no existan reglas validadas y aplicadas al entorno de prueba o producción correspondiente.
+
+2. ESTRUCTURA DE DATOS DESTINO
+
+users/{uid}/workouts/{workoutId}
+- id, ownerUid, startedAt, finishedAt
+
+users/{uid}/workouts/{workoutId}/sets/{setId}
+- id, workoutId, exerciseId, exerciseName, setNumber, weightKg, repetitions, recordedAt
+
+users/{uid}/water_intake/{intakeId}
+- id, ownerUid, amountMl, loggedAt
+
+Los nombres y tipos del DTO deben coincidir exactamente con firestore.rules. Los UUID locales se usarán como IDs remotos. No se enviarán syncState ni error_logs. Las filas con ownerUid NULL quedan fuera de las consultas de pendientes; los datos antiguos solo serán elegibles después del reclamo explícito existente.
+
+3. PLAN PROPUESTO
+
+Paso 1 — DTOs:
+Crear FirestoreProgressDtos.kt para Workout, WorkoutSet y WaterIntake con solo los campos permitidos por las reglas.
+
+Paso 2 — Fuente remota:
+Crear FirestoreProgressDataSource.kt para escribir en:
+- users/{uid}/workouts/{workoutId}
+- users/{uid}/workouts/{workoutId}/sets/{setId}
+- users/{uid}/water_intake/{intakeId}
+
+Las operaciones deben esperar confirmación del servidor. El mismo UUID como ID de documento permite reintentos idempotentes.
+
+Paso 3 — Hilt:
+Agregar FirebaseFirestore como Singleton y proporcionar la fuente remota y el coordinador desde AppModule.kt. No se prevé cambio Gradle ni nuevas dependencias.
+
+Paso 4 — DAO:
+Ampliar AppDaos.kt con consultas que seleccionen solamente PENDING para el UID autenticado y que relacionen los sets con workouts de ese mismo UID. Añadir actualizaciones condicionales de estado para marcar SYNCED solo si UID y datos locales siguen coincidiendo con lo que se envió. Excluir ownerUid NULL.
+Al finalizar un workout previamente sincronizado, su modificación local debe volver a marcarlo PENDING.
+
+Paso 5 — Coordinador:
+Crear SyncCoordinator.kt. Este obtiene el UID desde FirebaseAuth, no desde UI. Serializa ejecuciones concurrentes, verifica sesión antes de cada escritura y antes de marcar SYNCED, sube el workout antes que sus sets y procesa hidratación por separado. Un error remoto mantiene los registros afectados como PENDING. No sincroniza error_logs.
+
+Paso 6 — Disparadores:
+Integrar en ProgressViewModel.kt la sincronización al restaurar o iniciar sesión, abrir la aplicación y después de guardar workout, series, agua o confirmar el reclamo de registros antiguos. La operación local debe terminar sin esperar la red.
+
+4. ARCHIVOS PREVISTOS
+
+Nuevos:
+- app/src/main/java/com/example/myprogres/data/remote/firestore/FirestoreProgressDtos.kt
+- app/src/main/java/com/example/myprogres/data/remote/firestore/FirestoreProgressDataSource.kt
+- app/src/main/java/com/example/myprogres/data/sync/SyncCoordinator.kt
+
+A modificar:
+- app/src/main/java/com/example/myprogres/data/di/AppModule.kt
+- app/src/main/java/com/example/myprogres/data/local/dao/AppDaos.kt
+- app/src/main/java/com/example/myprogres/feature/progress/ProgressViewModel.kt
+
+No se prevé modificar entidades, esquema Room, pantallas, diseño, Gradle o dependencias.
+
+5. PRUEBAS NECESARIAS
+
+- DAO: exclusividad por UID, inclusión solo de PENDING y exclusión de ownerUid NULL.
+- Transición: finalizar un workout que ya estaba SYNCED vuelve a dejarlo pendiente.
+- DTO: verificar campos exactos, valores e IDs.
+- Coordinador: verificar orden Workout → Sets; sincronización separada de agua; reintentos con el mismo UUID; errores de conexión/permisos; no marcar SYNCED antes de confirmación; cancelar/proteger al cambiar UID.
+- Firebase Emulator Suite: ejecutar pruebas de reglas con usuarios A, B y sin autenticar, incluyendo aislamiento de subcolecciones y creación del workout con sus sets mediante getAfter().
+- Integración: comprobar escritura contra Firestore Emulator o proyecto de pruebas, nunca contra producción durante esta etapa.
+
+6. RIESGOS Y LÍMITES
+
+- Sin WorkManager, los pendientes se intentarán al abrir la app, iniciar sesión o después de guardar datos. No se garantiza ejecución en segundo plano si se cierra el proceso.
+- Si cambia la sesión mientras una escritura está en vuelo, no se deben iniciar más escrituras ni marcar datos para la nueva sesión. La ruta del documento permanece bajo el UID original y las reglas deben impedir acceso cruzado.
+- Las reglas locales no están validadas todavía: el entorno inspeccionado no tenía Node.js, npm, Firebase CLI ni Java. La suite debe ejecutarse antes de confiar en las reglas.
+- Con reglas de producción en denegar-todo, una escritura legítima fallará hasta que reglas seguras hayan pasado las pruebas y estén aplicadas al entorno elegido.
+- No hay sincronización de Firestore → Room, sincronización bidireccional ni WorkManager dentro de este alcance.
+
+7. ESTADO DE ESTA REVISIÓN
+
+No se modificaron archivos funcionales, dependencias, Room o Firebase Console. No se realizaron escrituras remotas. El plan está pendiente de autorización para implementación.
+
+FIN DEL DOCUMENTO

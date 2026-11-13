@@ -1,0 +1,282 @@
+MYPROGRES — REGISTRO COMPLETO DE EJECUCIÓN
+Fecha: 2026-11-08
+Alcance: estabilidad, manejo de errores, Room, sincronización y validación Firebase Emulator.
+Este archivo consolida la auditoría y las acciones realizadas en las dos corridas recientes.
+No contiene credenciales, tokens, correo ni datos personales.
+
+======================================================================
+1. OBJETIVO Y RESTRICCIONES
+======================================================================
+
+Se solicitó:
+- Reproducir y corregir HomeScreenTest, preservando sus aserciones.
+- Auditar ErrorManager, ErrorLog, excepciones, seguridad de logs, Room y SyncCoordinator.
+- Probar escenarios de error automatizados y flujos locales.
+- Ejecutar unit tests, instrumented tests, compilación Debug/Release y reglas.
+- Validar la conexión únicamente contra Firebase Emulator.
+- No cambiar reglas o escribir en Firestore de producción.
+- Mantener Room como fuente local inmediata, no borrar datos ni cambiar el esquema.
+
+======================================================================
+2. INSPECCIÓN Y DIAGNÓSTICO
+======================================================================
+
+HomeScreenTest:
+- Clase: com.example.myprogres.ui.HomeScreenTest.
+- Asersiones originales preservadas:
+  1) “¿Listo para entrenar?” visible.
+  2) “500 ml” visible.
+- La prueba corre bajo Robolectric y Compose UI test.
+- El stack trace falla al lanzar androidx.activity.ComponentActivity desde ActivityScenarioRule.before.
+- La falla ocurre antes de setContent y antes de las aserciones.
+- Texto del fallo: Robolectric no puede resolver la actividad para el intent MAIN/LAUNCHER, con componente org.robolectric.default/androidx.activity.ComponentActivity.
+- Se inspeccionaron versiones de AndroidX Activity Compose, Compose UI test, Robolectric y dependencias Gradle.
+- Se probaron variantes temporales del manifiesto/declaración de Activity y de la dependencia de manifiesto Compose. No solucionaron el error y se restauraron los archivos al estado previo.
+- No se cambió ninguna versión de dependencia.
+- La prueba no se desactivó ni se eliminó. Continúa fallando.
+
+Arquitectura y manejo de errores:
+- ProgressViewModel ejecuta mutaciones locales con ErrorManager y pide sincronización después del éxito local.
+- OfflineProgressRepository usa Room; no depende de Firestore para guardar localmente.
+- SyncCoordinator consulta solo PENDING por UID, excluye ownerUid nulo y no sincroniza error_logs.
+- SyncCoordinator escribe Workout antes de Sets y luego procesa hidratación.
+- Usa FirebaseAuth.currentUser.uid, mutex para evitar concurrencia y verificaciones de sesión antes/después de escribir.
+- El estado SYNCED se marca después del ACK remoto mediante actualizaciones DAO condicionales.
+- Una falla remota evita marcar el registro SYNCED; debe permanecer PENDING si el CAS no se ejecuta.
+- Los UUID locales se usan como IDs estables de documentos bajo users/{uid}.
+- ErrorLogEntity no tiene campos de contraseña, token o correo; la tabla es local.
+
+Configuración del emulador:
+- Debug toma el host desde firestore-emulator.local.properties.
+- Valor local leído: host=192.168.1.8.
+- Hilt configura FirebaseFirestore.useEmulator(host, 8080) solo en Debug y falla explícitamente si falta host.
+- Release no invoca useEmulator y tiene el host vacío.
+- No se modificó configuración de producción.
+
+======================================================================
+3. CAMBIOS DE CÓDIGO REALIZADOS
+======================================================================
+
+1) app/src/main/java/com/example/myprogres/core/error/AppResult.kt
+- Añadidos AppError.Authentication y AppError.Firestore.
+- AppError.Connectivity ahora se identifica como NETWORK y usa un mensaje seguro que indica que los datos siguen en el dispositivo.
+
+2) app/src/main/java/com/example/myprogres/core/error/ErrorManager.kt
+- Clasifica FirebaseNetworkException e IOException como NETWORK.
+- Clasifica FirebaseAuthException como AUTHENTICATION.
+- Clasifica FirebaseFirestoreException como FIRESTORE.
+- Firestore UNAVAILABLE y DEADLINE_EXCEEDED se clasifican como NETWORK.
+- Mantiene mensajes de usuario seguros; no muestra el mensaje interno de Firebase.
+- CancellationException se vuelve a lanzar para respetar cancelación estructurada.
+- El registro local continúa fallando de forma aislada si la inserción de error_logs falla.
+
+3) app/src/main/java/com/example/myprogres/core/error/CrashReporter.kt
+- La interfaz recibe solo el código estable del error.
+- Ya no recibe el objeto Exception, que podría contener texto privado.
+
+4) app/src/androidTest/java/com/example/myprogres/RoomAndErrorLoggingTest.kt
+- Añadidas pruebas instrumentadas para errores de red, Firebase Auth y Firestore.
+- Verifican categorías y que mensajes privados sintéticos no se almacenen en safeMessage.
+
+No se modificaron:
+- Room, entidades, DAO, migraciones ni esquema.
+- SyncCoordinator ni sus consultas/estados.
+- Pantallas o diseño.
+- Reglas Firestore o Firebase Console.
+- Gradle, AGP, Kotlin, Firebase BoM ni dependencias finales.
+- Datos del usuario.
+
+======================================================================
+4. COMANDOS Y RESULTADOS DE PRUEBAS
+======================================================================
+
+A. Reproducción inicial de Robolectric:
+Comando:
+:app:testDebugUnitTest --tests com.example.myprogres.ui.HomeScreenTest --stacktrace
+
+Resultado:
+- Falló antes de las aserciones.
+- ActivityScenarioRule no pudo resolver ComponentActivity.
+
+B. Suite unitaria completa:
+Comando:
+:app:testDebugUnitTest
+
+Resultado final:
+- 8 aprobadas.
+- 0 omitidas.
+- 1 fallida.
+- Falla: HomeScreenTest.homeScreen_showsTrainingAndWaterSummary.
+- Causa: resolución de ComponentActivity por Robolectric antes de iniciar Compose.
+- El test y las aserciones originales permanecen.
+
+C. Compilación de Kotlin de tests instrumentados:
+Comando:
+:app:compileDebugAndroidTestKotlin
+
+Resultado:
+- BUILD SUCCESSFUL.
+
+D. Suite instrumentada Android:
+Comando:
+:app:connectedDebugAndroidTest
+
+Resultado final:
+- Dispositivo reportado por Gradle: AN8J6R6426001877.
+- 13 pruebas aprobadas.
+- 0 fallidas.
+
+E. Compilación Debug:
+Comando:
+:app:assembleDebug
+
+Resultado:
+- BUILD SUCCESSFUL.
+
+F. Compilación Release:
+Comando:
+:app:assembleRelease
+
+Resultado:
+- BUILD SUCCESSFUL.
+
+G. Intento de script npm:
+Comando:
+npm.cmd run test:rules
+
+Resultado:
+- No pudo ejecutarse porque npm.cmd no estaba en PATH.
+
+Segundo intento con ruta explícita de npm:
+& 'C:\Program Files\nodejs\npm.cmd' run test:rules
+
+Resultado:
+- El script Firebase no encontró node en el PATH del proceso hijo.
+- No se reportó fallo de reglas por este intento.
+
+H. Pruebas de reglas Firestore directas:
+Comando:
+$env:FIRESTORE_EMULATOR_HOST='127.0.0.1:8080'
+& 'C:\Program Files\nodejs\node.exe' --test tests/firestore.rules.test.js
+
+Resultado:
+- 29 pruebas.
+- 29 aprobadas.
+- 0 fallidas.
+- 0 omitidas.
+- Host de prueba local 127.0.0.1:8080.
+- Las pruebas cubren autenticación, aislamiento entre usuarios, workouts, sets, water intake, validación de campos, batches/getAfter y rutas no contempladas.
+
+======================================================================
+5. VALIDACIÓN POSTERIOR DESDE EL HONOR
+======================================================================
+
+1) Comprobé el estado UI:
+- Inicialmente la pantalla estaba en reposo/launcher.
+- No se usó la contraseña del usuario ni se ingresaron credenciales.
+
+2) Verifiqué ADB:
+Comando:
+adb devices -l
+
+Resultado:
+- Dispositivo AN8J6R6426001877 autorizado.
+- Modelo reportado MTN-NX3 (HONOR Magic8 Lite).
+
+3) Verifiqué conectividad local al emulador:
+Comando:
+Test-NetConnection -ComputerName 127.0.0.1 -Port 8080 | Select-Object ComputerName,RemotePort,TcpTestSucceeded
+
+Resultado:
+- TcpTestSucceeded=True.
+
+4) Verifiqué si MyProgres estaba instalado:
+Comando:
+adb shell pm path com.example.myprogres
+
+Resultado inicial:
+- No había paquete instalado.
+
+5) Instalé la build Debug:
+Comando Gradle:
+:app:installDebug
+
+Resultado:
+- BUILD SUCCESSFUL.
+- No se borraron datos ni se desinstaló una versión anterior; el paquete no estaba instalado previamente en ese teléfono.
+
+6) Abrí la app:
+Comando:
+adb shell monkey -p com.example.myprogres 1
+
+Resultado:
+- Evento de lanzamiento ejecutado.
+
+7) Inspeccioné la pantalla:
+- MyProgres muestra el formulario “Inicia sesión para continuar a MyProgres”.
+- No hay sesión autenticada activa en la instalación actual.
+- No se inició sesión, no se crearon registros y no se realizaron escrituras al emulador desde la app.
+
+Configuración local verificada:
+- firestore-emulator.local.properties: host=192.168.1.8.
+- TCP local 127.0.0.1:8080 accesible desde el computador.
+- No se confirmó todavía conectividad del teléfono a la dirección LAN por una operación autenticada de Firestore.
+
+======================================================================
+6. PRUEBAS LOCALES Y FALLOS CONTROLADOS
+======================================================================
+
+Verificaciones cubiertas por tests instrumentados:
+- Persistencia Room en una base en memoria.
+- Workout y sets asociados al UID esperado.
+- Aislamiento de consultas entre propietario A y B.
+- Registro de hidratación y consultas del propietario.
+- Finalización del entrenamiento y su resumen en historial.
+- Rechazo de propietario vacío.
+- Registro local seguro de errores inesperados.
+- Clasificación y sanitización de excepciones de red, Auth y Firestore.
+
+Verificaciones unitarias:
+- Peso negativo rechazado.
+- Repeticiones inválidas rechazadas.
+- Validaciones del dominio cubiertas por la suite que ejecutó 8 pruebas correctas.
+
+No se ejecutaron como escenarios forzados independientes:
+- Cortar Internet durante la escritura Firestore desde la app.
+- Forzar un SQLiteException desde el ViewModel y verificar ausencia de éxito en pantalla.
+- Reintento de SyncCoordinator después de una falla remota.
+- Cambio de cuenta mientras una escritura está en curso.
+- Sesión sin autenticar intentando una llamada remota.
+- Persistencia después de cerrar/reabrir la aplicación con datos creados durante esta corrida.
+- Flujo autenticado app → Firestore Emulator y comprobación de PENDING→SYNCED.
+
+Estos casos no se declaran aprobados.
+
+======================================================================
+7. ESTADO FIREBASE/PRODUCCIÓN
+======================================================================
+
+- Se ejecutaron reglas exclusivamente contra Firestore Emulator local.
+- Las 29 escrituras de prueba de reglas no fueron a producción.
+- No se ejecutó firebase deploy.
+- No se cambiaron reglas de producción ni Firebase Console.
+- No se realizaron escrituras en Firestore de producción.
+- No hay evidencia E2E desde la app, dado que MyProgres está en pantalla de inicio de sesión.
+
+======================================================================
+8. PENDIENTES
+======================================================================
+
+1) El usuario debe iniciar sesión manualmente en el HONOR usando su cuenta de prueba y avisar cuando aparezca la pantalla principal. No enviar credenciales por chat.
+2) Después se podrá probar con datos deliberados:
+   - Crear entrenamiento.
+   - Añadir al menos dos series.
+   - Finalizarlo.
+   - Registrar hidratación.
+   - Confirmar documentos bajo users/{uid} en Emulator.
+   - Comprobar PENDING→SYNCED en Room después del ACK.
+3) Resolver Robolectric HomeScreenTest. Continúa fallando antes de ejecutar sus dos aserciones; no se eliminó.
+4) Completar pruebas automatizadas del SyncCoordinator con fallas remotas, reintentos y cambio de sesión.
+5) FAILED y CONFLICT están declarados como estados, pero no se implementa una transición desde el coordinador; ante error el comportamiento previsto y observado por inspección es dejar PENDING.
+
+No declarar integración E2E completa hasta observar documentos en Emulator y confirmar el estado local desde una sesión autenticada.

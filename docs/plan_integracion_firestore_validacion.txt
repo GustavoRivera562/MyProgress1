@@ -1,0 +1,195 @@
+MYPROGRES — VALIDACIÓN Y PLAN TÉCNICO PARA FIRESTORE
+Fecha de revisión: 2026-11-07
+Alcance: inspección estática del proyecto y propuesta. No se modificó código funcional, Gradle, Room, datos ni reglas de Firebase. No se hicieron lecturas o escrituras en Firestore.
+
+RESUMEN
+- Firebase Authentication por correo/contraseña ya está conectado a Hilt y a los flujos de la aplicación.
+- Room v2 es el almacenamiento local actual. Los registros de entrenamiento y agua llevan ownerUid y se consultan con ese UID.
+- Firestore aparece como dependencia Gradle, pero no hay inicialización/proveedor, repositorio de Firestore ni operaciones remotas en el código de producción.
+- No se encontró firestore.rules ni firebase.json dentro del proyecto. La denegación actual de todas las operaciones se toma del contexto indicado por el propietario; no se validó directamente en Firebase Console.
+- La propuesta mantiene Room como fuente local inmediata y define Firestore como réplica remota por usuario. WorkManager y la sincronización ejecutable quedan para una etapa posterior.
+
+1. VALIDACIONES DEL CÓDIGO ACTUAL
+
+1.1 Repositorios y DI
+- data/repository/OfflineProgressRepository.kt implementa domain/repository/ProgressRepository.kt y usa Room DAOs. Operaciones de inicio/finalización de entrenamiento, creación de series, agua y reclamo de registros antiguos están implementadas localmente.
+- data/di/AppModule.kt proporciona FirebaseAuth y FirebaseAuthRepository, AppDatabase y OfflineProgressRepository.
+- No existe proveedor FirebaseFirestore ni binding de una fuente/repositorio remoto.
+- Firebase Authentication y Firestore están declarados en app/build.gradle.kts con el catálogo existente. La BoM indicada es 34.16.0. No se proponen cambios de versiones.
+- settings.gradle.kts tiene repositorios Google y Maven Central; no se requiere tocarlo para el patrón de integración descrito.
+
+1.2 Propiedad local y relación entrenamiento/series
+- data/local/entity/Entities.kt define workouts con id, timestamps, syncState y ownerUid nullable; water_intake también tiene ownerUid nullable.
+- workout_sets contiene workoutId y una foreign key a workouts.id con borrado en cascada. No contiene ownerUid propio.
+- data/local/dao/AppDaos.kt aplica ownerUid a las consultas personales de workouts y water_intake.
+- Las series se consultan y cuentan mediante JOIN de workout_sets a workouts y condición w.ownerUid = :ownerUid. El historial también agrupa series desde entrenamientos filtrados por propietario. Así las series heredan el acceso del padre.
+- OfflineProgressRepository valida que el UID no esté vacío, valida que el entrenamiento pertenezca al UID antes de finalizarlo o agregar una serie, y realiza operaciones de escritura relacionadas en transacciones Room.
+- La migración Room v1 a v2 conserva los registros anteriores con ownerUid NULL. Su asignación requiere el flujo explícito de confirmación existente.
+- error_logs es local y técnico; no debe incluirse en la estructura remota de progreso ni se debe sincronizar por defecto.
+
+1.3 Estado de sincronización
+- Las entidades WorkoutEntity, WorkoutSetEntity y WaterIntakeEntity ya tienen syncState con valor inicial PENDING. Hay constantes SYNC_PENDING, SYNCED, SYNC_FAILED y SYNC_CONFLICT.
+- El contador pendingSyncCount se calcula en OfflineProgressRepository y se presenta como marcador local. La interfaz indica que no hay worker activo.
+- No encontré DAO para reclamar/actualizar estados de sincronización, política de reintentos, marca de modificación remota ni lógica de subida/descarga. El campo por sí solo no significa que exista sincronización.
+- La pantalla de diagnóstico de Screens.kt afirma que Firestore y sincronización no están activos.
+- El código no contiene llamadas de escritura Firestore, FirebaseFirestore.getInstance(), collection() o document() en producción.
+
+1.4 Firebase y reglas
+- gradle/libs.versions.toml contiene alias para Firebase BoM, Auth y Firestore. app/build.gradle.kts aplica el BoM y ambos SDK.
+- app/google-services.json tiene package_name com.example.myprogres, que coincide con applicationId y namespace de app/build.gradle.kts.
+- AndroidManifest.xml declara INTERNET, requerido para tráfico de red de la aplicación.
+- No se encontró inicialización/proveedor Firestore, repositorio remoto, fuente de datos remota, firestore.rules ni firebase.json en el árbol revisado.
+- El modo de reglas denegar-todo y el proyecto Firestore de producción se consideran información proporcionada por el usuario, no evidencia que se haya podido leer desde el repositorio.
+
+2. PROPUESTA DE ARQUITECTURA
+
+Conservar la cadena actual:
+Compose → ViewModel → interfaz de dominio ProgressRepository → OfflineProgressRepository → Room.
+
+La capa remota será separada y no reemplazará la ruta local:
+- Definir una abstracción remota (por ejemplo, ProgressRemoteDataSource o RemoteProgressRepository) para cargar y escribir DTO serializables.
+- Implementarla en data/remote/firestore/FirestoreProgressDataSource usando FirebaseFirestore.
+- Mantener OfflineProgressRepository como implementación local de ProgressRepository y como fuente de lectura inmediata en la UI.
+- Un coordinador de sincronización posterior compara registros locales pendientes y estado remoto; no debe colocar llamadas de red dentro de Composables o DAOs.
+- Agregar el proveedor singleton FirebaseFirestore a AppModule solo en la etapa de implementación autorizada.
+- Adaptar el contrato de dominio o añadir un SyncCoordinator; evitar hacer que ViewModels dependan de clases Firebase.
+
+Firestore es un espejo remoto. Room seguirá entregando datos aunque no haya red. Las operaciones del usuario se guardan primero localmente y se marcan para sincronizar; una etapa separada realizará la subida cuando esté disponible. No se propone activar Firestore ahora.
+
+3. ESTRUCTURA DE DATOS PROPUESTA
+
+Todos los datos de progreso deben quedar bajo el UID autenticado. Esquema recomendado:
+
+users/{uid}/workouts/{workoutId}
+  id: string                (igual al ID UUID generado en Room)
+  ownerUid: string          (igual a uid; dato redundante útil para validar consistencia)
+  startedAt: timestamp o epoch-millis
+  finishedAt: timestamp/null
+  schemaVersion: number
+  updatedAt: timestamp
+
+users/{uid}/workouts/{workoutId}/sets/{setId}
+  id: string                (igual al ID UUID generado en Room)
+  workoutId: string         (igual al workoutId de la ruta)
+  exerciseId: string
+  exerciseName: string
+  setNumber: number
+  weightKg: number
+  repetitions: number
+  recordedAt: timestamp o epoch-millis
+  schemaVersion: number
+
+users/{uid}/water_intake/{intakeId}
+  id: string                (igual al ID UUID generado en Room)
+  ownerUid: string          (igual a uid)
+  amountMl: number
+  loggedAt: timestamp o epoch-millis
+  schemaVersion: number
+
+No copiar syncState local al documento remoto como estado de sincronización global: el estado pendiente/enviado es propiedad del dispositivo/outbox local. Si se requiere updatedAt/revisión, definir su significado antes de habilitar sincronización. No almacenar error_logs en Firestore. Los nombres de campos remotos pueden seguir camelCase aunque las tablas Room sean snake_case.
+
+Usar IDs de documento existentes, nunca document() con ID aleatorio generado en el servidor: el id local UUID se convierte en el ID de documento remoto. Así un reintento escribe el mismo documento y no crea duplicados. Mantener los sets como subcolección conserva la relación padre-hijo; para leer datos se verifica siempre el padre y el UID. Si se necesita listar/eliminar entrenamientos completos, definir expresamente cómo tratar subcolecciones: Firestore no elimina automáticamente subcolecciones al borrar un documento padre.
+
+4. REGLAS DE SEGURIDAD A PROPONER (NO APLICADAS)
+
+No se cambió la configuración en consola ni se creó un archivo de reglas. Antes de abrir acceso, probar en Firebase Emulator Suite las reglas con dos usuarios distintos y solicitar revisión/aprobación de la política final.
+
+Política mínima sugerida:
+- Cada match de datos debe estar dentro de /users/{uid}/... y exigir request.auth != null y request.auth.uid == uid.
+- Validar allowlist de campos, tipos, rangos y tamaños para workouts, sets e intake. Rechazar campos extra inesperados si no se necesitan.
+- En workouts e intake, exigir ownerUid == uid si ese campo se envía.
+- En sets, restringir acceso por UID de la ruta y validar que workoutId corresponda al workoutId del path. Para reglas que consulten el padre, comprobar existencia y propietario de /users/{uid}/workouts/{workoutId}; la ruta misma y auth UID siguen siendo obligatorios.
+- No usar reglas abiertas como allow read, write: if true; no basar aislamiento solo en filtros de consulta del cliente.
+- Mantener por defecto denegación de rutas no declaradas y excluir error_logs.
+- Reglas de seguridad no sustituyen validación en la app, y filtros de cliente no sustituyen reglas de servidor.
+
+Fragmento conceptual, NO es un archivo desplegable ni validado:
+match /users/{uid}/workouts/{workoutId} {
+  allow read, write: if request.auth != null
+                    && request.auth.uid == uid;
+  match /sets/{setId} {
+    allow read, write: if request.auth != null
+                       && request.auth.uid == uid;
+  }
+}
+match /users/{uid}/water_intake/{intakeId} {
+  allow read, write: if request.auth != null
+                    && request.auth.uid == uid;
+}
+La política real debe añadir validaciones de campos, operaciones y parent references; este ejemplo no se debe publicar directamente.
+
+5. FLUJO DE DATOS Y SINCRONIZACIÓN PROPUESTO
+
+Fase futura, sin implementar en esta validación:
+1) La sesión Auth suministra el UID. Ningún método de sincronización recibe UID arbitrario de UI; el coordinador obtiene/verifica UID actual de FirebaseAuth antes de cada trabajo.
+2) En una acción normal, la app escribe en Room primero (fuente inmediata) dentro de transacción y los registros quedan PENDING.
+3) Al sincronizar, seleccionar solo filas locales con ownerUid igual al UID actual. Resolver los sets mediante sus workoutId y confirmar que el workout padre pertenece al mismo UID.
+4) Convertir entidades a DTOs explícitos, validar y escribir con rutas bajo users/{uid}. Mantener el ID local como ID remoto. Upsert idempotente al documento fijo.
+5) Solo después de confirmar el resultado del servidor marcar la fila como SYNCED localmente. No marcar como sincronizada ante aceptación meramente en memoria/caché local si el criterio del producto exige confirmación del servidor.
+6) Si una entidad remota falla, conservar PENDING o pasar a FAILED con contador/fecha del próximo intento; los errores de conexión se reintentan con backoff. No borrar la fila local por error remoto.
+7) Al descargar cambios remotos en otra instalación, convertir a entidades e insertar/actualizar Room en transacción. Restringir cada batch al UID actual y evitar aplicar documentos de otro UID.
+8) En cambio de cuenta/cierre de sesión, cancelar trabajo activo y listeners; no continuar un batch si el UID de FirebaseAuth cambió. Antes de reanudar, comprobar dueño por fila.
+9) WorkManager se deja para la etapa posterior acordada. Esta propuesta no requiere activarlo hoy.
+10) Definir cómo se reflejan borrados y conflictos antes de descarga bidireccional. Actualmente no hay protocolo de borrado/tombstone ni timestamps de actualización/versiones en el modelo local.
+
+6. ERRORES, RED Y DUPLICADOS
+- Offline: Room continúa siendo utilizable; la UI informa que el remoto está pendiente, no falla la operación local por ausencia de red.
+- Auth: no sincronizar con estado SignedOut. Ante token o permisos denegados, conservar Room y mostrar error seguro sin datos sensibles.
+- Distinguir errores transitorios (offline, timeout, unavailable) de permanentes (permission-denied, datos inválidos). Reintentar solo transitorios.
+- Usar IDs deterministas del modelo local y upsert al mismo path para reintentos idempotentes.
+- No asignar al cliente permiso para cambiar UID; derivarlo de la sesión autenticada.
+- No registrar tokens, contraseñas, contenido sensible ni payload íntegro en Logcat o error_logs.
+- Para actualizaciones del workout (ej. finishedAt), definir si la política es last-write-wins, revisión monotónica o conflicto explícito. No existe updatedAt/revision que permita resolver conflicto hoy.
+- Si futuras operaciones escriben muchas series de una vez, respetar límites de batch de Firestore y aplicar paginación por conjuntos pequeños.
+- SDK Firestore puede mantener caché local propia. Las lecturas de pantalla deben usar rutas/query bajo UID actual y la app debe evitar exponer datos de una cuenta al cambiar de sesión. Documentar y probar comportamiento de caché al cerrar sesión/cambiar usuario; la seguridad principal debe estar en reglas y rutas, no en limpiar caché.
+
+7. ARCHIVOS A CREAR O MODIFICAR AL IMPLEMENTAR
+
+Posibles archivos nuevos:
+- data/remote/firestore/FirestoreProgressDataSource.kt (API remota aislada).
+- data/remote/firestore/FirestoreProgressDto.kt (documentos explícitos y conversiones).
+- data/repository/FirestoreProgressRepository.kt o implementación de la interfaz remota.
+- domain/repository/ProgressRemoteDataSource.kt (contrato sin tipos Firebase).
+- domain/sync/SyncCoordinator.kt (orquestación entre Room y remoto; sin WorkManager al principio).
+- firestore.rules (solo después de revisar/aprobar reglas y comprobarlas en emulador).
+- firebase.json únicamente si se adopta Firebase Emulator/CLI para rules y pruebas.
+
+Archivos existentes candidatos a cambios:
+- data/di/AppModule.kt: proveer FirebaseFirestore y bindings.
+- data/local/entity/Entities.kt: posiblemente incorporar metadatos de sync/revisión/tombstone cuando el protocolo esté definido; hoy ya existe syncState.
+- data/local/dao/AppDaos.kt: consultas/actualizaciones de outbox, intentos/estados, cargas por UID, escrituras remotas aplicadas en transacción.
+- data/local/AppDatabase.kt y una nueva Migration: solo si cambian entidades locales; determinar versión nueva a partir del esquema actual v2 y preservar datos.
+- data/repository/OfflineProgressRepository.kt: mantener escritura local y marcar pendientes coherentemente; evitar mezclar Firebase directamente en esta clase.
+- domain/repository/ProgressRepository.kt: solo si el contrato local necesita operaciones de sincronización/estado.
+- feature/progress/ProgressViewModel.kt y ui/screens/Screens.kt: estados y feedback de sincronización, sin llamadas Firebase directas.
+- pruebas unitarias e instrumentación, nuevas pruebas Emulator para reglas.
+- gradle/libs.versions.toml y app/build.gradle.kts: Firestore ya está declarado; no se propone cambiarlo salvo que una compilación real demuestre necesidad concreta y se justifique antes.
+- AndroidManifest.xml y google-services.json no requieren cambios previsibles para Firestore con la configuración actual.
+
+No hacer todas estas modificaciones en un solo paso. Primero cerrar contrato, estructura y reglas; después source/DI y pruebas, y solo luego sincronización.
+
+8. ETAPAS RECOMENDADAS
+Etapa 0 — Acordar política de documentos, timestamps/IDs, conflictos, borrados y comportamiento de cache.
+Etapa 1 — Añadir/validar reglas en Firebase Emulator con usuarios A/B, lecturas/escrituras propias, UID ajeno, no autenticado, payload malformado, subcolección con padre inválido. No publicar reglas todavía.
+Etapa 2 — Implementar DTOs y source remoto con FirebaseFirestore en DI, sin conectar todavía las operaciones locales ni realizar escrituras reales; pruebas con emulador.
+Etapa 3 — Implementar salida idempotente Room → Firestore con outbox y confirmación de estados. Comprobar Auth UID antes, durante y después.
+Etapa 4 — Implementar descarga Firestore → Room bajo UID y política de conflictos; probar cambio/cierre de cuenta y modo offline.
+Etapa 5 — Integrar estado y feedback en UI/diagnósticos; luego valorar WorkManager para ejecución confiable en segundo plano.
+Etapa 6 — Validación controlada en entorno de prueba antes de desplegar reglas o habilitar producción.
+
+9. RIESGOS PENDIENTES
+- Reglas actuales deniegan operaciones: hasta publicar reglas validadas, cualquier llamada real legítima recibirá permission-denied.
+- No existe todavía un protocolo bidireccional ni campo para resolver cambios concurrentes.
+- Los syncState existen, pero no hay outbox operativa/retry y todos los tipos usan texto sin enum de estados restringido.
+- Si solo se filtra UI y se omiten reglas, un cliente modificado podría acceder a rutas ajenas.
+- Un UID equivocado al convertir o sincronizar puede mezclar cuentas; revisar UID actual para todo batch y filtrar Room por ownerUid.
+- El claim de registros heredados los vincula localmente a una cuenta, pero no los sube. Al sincronizar, se deberá pedir/usar el consentimiento ya concedido y confirmar pertenencia antes de subir.
+- Datos en caché pueden persistir entre sesiones en el dispositivo; rutas UID-scoped más pruebas de cambio de cuenta son requisito.
+- Borrado de workout y su subcolección necesita estrategia explícita.
+- Límites/cuotas, latencia y costes de Firestore no se han medido.
+- No se ejecutaron pruebas contra Firestore Emulator ni Console; esta tarea fue de inspección estática.
+
+10. RECOMENDACIÓN
+Conservar Room y las entidades existentes como base, y no conectar escrituras todavía. Antes de implementar, aprobar un esquema de documentos y reglas con validación en Emulator. Después introducir una fuente remota separada y un coordinador idempotente que use UUID existentes y sincronice solo bajo el UID actual. Evitar convertir pendingSyncCount en promesa de sincronización hasta tener outbox, reintentos y estados confirmados.
+
+FIN DEL INFORME

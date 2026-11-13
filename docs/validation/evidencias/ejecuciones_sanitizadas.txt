@@ -1,0 +1,40 @@
+MyProgres — resumen de ejecuciones (2026-11-08)
+Datos personales, credenciales y stack traces completos omitidos.
+
+1) :app:testDebugUnitTest
+Resultado: FAILED. 8 passed, 0 skipped, 1 failed.
+Única falla: HomeScreenTest.homeScreen_showsTrainingAndWaterSummary.
+Causa observada: RuntimeException al resolver la ActivityScenario para org.robolectric.default/androidx.activity.ComponentActivity. Sucede en ActivityScenarioRule.before, antes de ejecutar las aserciones.
+
+2) :app:compileDebugAndroidTestKotlin
+Resultado: BUILD SUCCESSFUL.
+
+3) :app:connectedDebugAndroidTest
+Resultado: BUILD SUCCESSFUL.
+Dispositivo ADB reportado por Gradle: AN8J6R6426001877.
+Pruebas: 13 PASSED, 0 FAILED.
+
+4) :app:assembleDebug
+Resultado: BUILD SUCCESSFUL.
+
+5) :app:assembleRelease
+Resultado: BUILD SUCCESSFUL.
+
+6) FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+Comando ejecutado:
+& 'C:\Program Files\nodejs\node.exe' --test tests/firestore.rules.test.js
+Resultado: tests 29; pass 29; fail 0; cancelled 0; skipped 0.
+Solo se conectó al host local del Emulator.
+
+7) npm.cmd run test:rules
+Resultado: no iniciado. El comando npm no estaba en PATH en el primer intento. Con ruta explícita de npm el script reportó que el proceso hijo no encontraba node en PATH. Se ejecutó exitosamente el archivo Node de forma directa en el emulador local.
+
+8) Validación UI manual app → Emulator
+Resultado: BLOQUEADA / NO EJECUTADA.
+El dispositivo ADB AN8J6R6426001877 está autorizado. Se comprobó puerto TCP 127.0.0.1:8080 (TcpTestSucceeded=True), se instaló :app:installDebug y se abrió com.example.myprogres. La pantalla muestra la vista de acceso sin sesión activa; no se inició sesión ni se escribieron datos de prueba desde la aplicación. La configuración Debug local indica host 192.168.1.8. No se guarda captura en archivos: el estado es la pantalla de acceso y no evidencia datos de sincronización.
+
+Seguridad:
+- Sin firebase deploy.
+- Sin cambios de reglas ni Firebase Console.
+- Sin escrituras a Firestore de producción.
+- Las pruebas automatizadas de reglas escribieron únicamente en Firestore Emulator local y limpiaron sus documentos de test.

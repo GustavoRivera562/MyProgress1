@@ -1,0 +1,89 @@
+AUDITORÍA DEL ESTADO DE FIREBASE — MYPROGRES
+Fecha: 07-11-2026
+Alcance: inspección estática previa a la integración funcional. No se modificó código, configuración ni reglas remotas.
+
+RESUMEN
+Firebase está configurado en Gradle y enlazado al proyecto Android mediante Google Services y google-services.json. Sin embargo, la app aún no usa Authentication ni Firestore desde código. Room y OfflineProgressRepository siguen siendo la única fuente e implementación de datos.
+
+1. GRADLE Y DEPENDENCIAS
+- gradle/libs.versions.toml declara Firebase BoM 34.16.0, google-services 4.5.0, y aliases para firebase-auth y firebase-firestore.
+- build.gradle.kts del proyecto declara el alias Google Services con apply false.
+- app/build.gradle.kts aplica Google Services y declara Firebase BoM, Authentication y Cloud Firestore.
+- El BoM controla las versiones individuales de los SDK. Las notas oficiales asignan a BoM 34.16.0:
+  Firebase Auth 24.2.0
+  Cloud Firestore 26.4.1
+- No se modificó Gradle, AGP, Kotlin ni Firebase BoM.
+- La compilación :app:assembleDebug terminó correctamente durante esta validación.
+
+2. GOOGLE SERVICES Y PACKAGE
+- Archivo: app/google-services.json.
+- El package_name configurado en el cliente Android es com.example.myprogres.
+- Coincide con applicationId y namespace en app/build.gradle.kts.
+- Google Services Plugin está declarado en el Gradle del proyecto y aplicado en el módulo app.
+
+3. INICIALIZACIÓN
+- MyProgresApplication.kt solo contiene @HiltAndroidApp; no inicializa Firebase explícitamente.
+- No se encontró uso de FirebaseApp.initializeApp(), FirebaseAuth ni FirebaseFirestore en código fuente.
+- La configuración de Google Services provee los recursos generados que usa la inicialización automática del SDK; eso no significa que la app ya tenga flujos funcionales de Authentication o Firestore.
+
+4. HILT, REPOSITORIOS Y FLUJOS
+- data/di/AppModule.kt proporciona AppDatabase, ProgressRepository implementado mediante OfflineProgressRepository y ErrorManager.
+- No existen proveedores Hilt para FirebaseAuth o FirebaseFirestore.
+- domain/repository/ProgressRepository.kt contiene el contrato local de operaciones de entrenamiento e hidratación.
+- OfflineProgressRepository.kt realiza operaciones mediante DAO de Room.
+- No se encontraron interfaces o repositorios remotos ni servicios Firebase.
+- No se encontraron pantallas o flujos de inicio/cierre de sesión en el código inspeccionado.
+- Los campos syncState y pendingSyncCount son marcadores locales. No hay implementación de sincronización ni worker; no se encontraron escrituras remotas.
+
+5. REGLAS FIRESTORE
+- No se encontraron firebase.json, firestore.rules ni archivos locales equivalentes de reglas.
+- Esta inspección local no permite conocer ni verificar las reglas actualmente desplegadas en Firebase Console.
+- Antes de cualquier acceso desde cliente, las reglas deben restringir cada lectura/escritura a datos del UID autenticado. No se debe desplegar una regla pública.
+- Referencia del patrón UID: https://firebase.google.com/docs/firestore/security/rules-conditions
+
+6. CONFIGURACIÓN DE FIREBASE CONSOLE PENDIENTE DE CONFIRMAR
+- Que Firebase Authentication esté habilitado y que el proveedor elegido esté activado.
+- Que exista una base de datos Cloud Firestore creada.
+- Que las reglas desplegadas sean privadas y vinculadas al UID.
+- Si se elige Google Sign-In u OAuth, revisar SHA de firma y configuración OAuth. La configuración concreta depende del proveedor.
+- No se accedió a Firebase Console, por lo que estos puntos no se consideran verificados.
+
+7. MANIFIESTO Y RED
+- app/src/main/AndroidManifest.xml no declara explícitamente android.permission.INTERNET.
+- Antes de llamadas de red, revisar el manifiesto combinado del APK y agregar la declaración explícita si no está incluida por los manifiestos de dependencias.
+
+8. COMPATIBILIDAD DE COMPILACIÓN
+- AGP, Kotlin y Gradle no se cambiaron.
+- :app:assembleDebug compiló correctamente con la configuración presente.
+- Firebase BoM 34.16.0 mantiene Auth 24.2.0 y Firestore 26.4.1 según las notas oficiales:
+  https://firebase.google.com/support/release-notes/android
+- Guía oficial de configuración Android:
+  https://firebase.google.com/docs/android/setup
+
+9. ARCHIVOS INSPECCIONADOS
+- build.gradle.kts
+- app/build.gradle.kts
+- gradle/libs.versions.toml
+- settings.gradle.kts
+- app/google-services.json
+- app/src/main/AndroidManifest.xml
+- app/src/main/java/com/example/myprogres/MyProgresApplication.kt
+- app/src/main/java/com/example/myprogres/data/di/AppModule.kt
+- app/src/main/java/com/example/myprogres/domain/repository/ProgressRepository.kt
+- app/src/main/java/com/example/myprogres/data/repository/OfflineProgressRepository.kt
+- Búsqueda en código fuente de FirebaseApp, FirebaseAuth, FirebaseFirestore, Firebase, Firestore, signIn y sync.
+
+10. PLAN DE INTEGRACIÓN PROPUESTO
+Etapa 1 — Preparación: confirmar proveedor de Authentication, habilitarlo en Console, crear Firestore y preparar reglas privadas por UID. Verificar permiso Internet.
+Etapa 2 — Authentication: agregar abstracción de autenticación, implementación Firebase, proveedores Hilt, estado de sesión y UI. No alterar Room ni los flujos locales.
+Etapa 3 — Firestore de solo lectura: definir rutas/documentos por UID, validar acceso autenticado y reglas sin escrituras de datos del usuario.
+Etapa 4 — Sincronización explícita: proponer mapeo de datos locales, consentimiento/acción del usuario, idempotencia y resolución de conflictos. Room permanece como fuente local principal.
+Etapa 5 — Sincronización en segundo plano: evaluar WorkManager y estados de sincronización después de validar las etapas previas.
+
+RESTRICCIONES MANTENIDAS EN ESTA AUDITORÍA
+- No se modificó Room, sus entidades, DAO o esquema.
+- No se modificaron funcionalidades locales.
+- No se actualizaron versiones o dependencias.
+- No se realizaron escrituras remotas.
+- No se modificaron ni desplegaron reglas de seguridad.
+

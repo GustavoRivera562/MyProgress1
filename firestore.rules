@@ -1,0 +1,152 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedInAs(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function validWorkout(uid, workoutId, data) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'startedAt', 'finishedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'startedAt', 'finishedAt'
+        ])
+        && data.id is string
+        && data.id == workoutId
+        && data.ownerUid is string
+        && data.ownerUid == uid
+        && data.startedAt is int
+        && data.startedAt > 0
+        && (
+          data.finishedAt == null
+          || (data.finishedAt is int && data.finishedAt >= data.startedAt)
+        );
+    }
+
+    function validSet(workoutId, setId, data) {
+      return data.keys().hasAll([
+          'id', 'workoutId', 'exerciseId', 'exerciseName',
+          'setNumber', 'weightKg', 'repetitions', 'recordedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workoutId', 'exerciseId', 'exerciseName',
+          'setNumber', 'weightKg', 'repetitions', 'recordedAt'
+        ])
+        && data.id is string
+        && data.id == setId
+        && data.workoutId is string
+        && data.workoutId == workoutId
+        && data.exerciseId is string
+        && data.exerciseId.size() > 0
+        && data.exerciseId.size() <= 60
+        && data.exerciseName is string
+        && data.exerciseName.size() > 0
+        && data.exerciseName.size() <= 60
+        && data.setNumber is int
+        && data.setNumber > 0
+        && data.weightKg is number
+        && data.weightKg >= 0
+        && data.weightKg <= 1000
+        && data.repetitions is int
+        && data.repetitions >= 1
+        && data.repetitions <= 1000
+        && data.recordedAt is int
+        && data.recordedAt > 0;
+    }
+
+    function validWater(uid, intakeId, data) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'amountMl', 'loggedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'amountMl', 'loggedAt'
+        ])
+        && data.id is string
+        && data.id == intakeId
+        && data.ownerUid is string
+        && data.ownerUid == uid
+        && data.amountMl is int
+        && data.amountMl >= 1
+        && data.amountMl <= 2000
+        && data.loggedAt is int
+        && data.loggedAt > 0;
+    }
+
+    function workoutPath(uid, workoutId) {
+      return /databases/$(database)/documents/users/$(uid)/workouts/$(workoutId);
+    }
+
+    function parentWorkoutExists(uid, workoutId) {
+      return exists(workoutPath(uid, workoutId))
+        && get(workoutPath(uid, workoutId)).data.ownerUid == uid;
+    }
+
+    function parentWorkoutExistsAfter(uid, workoutId) {
+      return existsAfter(workoutPath(uid, workoutId))
+        && getAfter(workoutPath(uid, workoutId)).data.ownerUid == uid;
+    }
+
+    match /users/{uid}/workouts/{workoutId} {
+      allow read: if signedInAs(uid);
+
+      allow create: if signedInAs(uid)
+        && validWorkout(uid, workoutId, request.resource.data);
+
+      // Only finishedAt may transition from null to an epoch-millis integer.
+      // Identical writes are also accepted so a retry remains idempotent.
+      allow update: if signedInAs(uid)
+        && validWorkout(uid, workoutId, request.resource.data)
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(['finishedAt'])
+        && (
+          (
+            resource.data.finishedAt == null
+            && request.resource.data.finishedAt is int
+            && request.resource.data.finishedAt >= resource.data.startedAt
+          )
+          || request.resource.data.finishedAt == resource.data.finishedAt
+        );
+
+      // Remote deletes are outside the one-way sync scope.
+      allow delete: if false;
+
+      match /sets/{setId} {
+        allow read: if signedInAs(uid)
+          && parentWorkoutExists(uid, workoutId);
+
+        allow create: if signedInAs(uid)
+          && parentWorkoutExistsAfter(uid, workoutId)
+          && validSet(workoutId, setId, request.resource.data);
+
+        // An identical retry is allowed; any later mutation is rejected.
+        allow update: if signedInAs(uid)
+          && parentWorkoutExistsAfter(uid, workoutId)
+          && validSet(workoutId, setId, request.resource.data)
+          && request.resource.data == resource.data;
+
+        allow delete: if false;
+      }
+    }
+
+    match /users/{uid}/water_intake/{intakeId} {
+      allow read: if signedInAs(uid);
+
+      allow create: if signedInAs(uid)
+        && validWater(uid, intakeId, request.resource.data);
+
+      // An identical retry is allowed; any later mutation is rejected.
+      allow update: if signedInAs(uid)
+        && validWater(uid, intakeId, request.resource.data)
+        && request.resource.data == resource.data;
+
+      allow delete: if false;
+    }
+
+    // Deny every collection or document path not explicitly listed above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

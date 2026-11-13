@@ -1,0 +1,83 @@
+VALIDACIÓN ESTÁTICA DE MyProgres
+Fecha: 2026-11-07
+Alcance: lectura de código, configuración y esquema presentes en el proyecto.
+No se ejecutaron pruebas, Git ni tareas de compilación. No se modificaron archivos de la aplicación.
+Este informe se creó a solicitud del usuario.
+
+1. FUNCIONALIDADES Y CONEXIONES VERIFICADAS
+
+UI -> ViewModel:
+- MainActivity obtiene ProgressViewModel con Hilt (@AndroidEntryPoint y by viewModels()) y lo entrega a ProgressApp.
+- ProgressApp recoge uiState mediante collectAsStateWithLifecycle().
+- TrainingScreen recibe state y callbacks ligados a startWorkout, finishWorkout y addSet del ViewModel.
+- WaterScreen recibe state y callback ligado a addWater.
+- HomeScreen recibe el mismo state y acciones de navegación para Entrenamiento e Hidratación.
+- ProgressScreen recibe state; usa state.history para listar sesiones e indicadores. No hay ruta/pantalla independiente llamada HistoryScreen: el historial está dentro de la sección “Progreso”.
+- DiagnosticsScreen consume diagnostics desde el mismo state.
+
+ViewModel -> Repository:
+- ProgressViewModel recibe ProgressRepository por Hilt.
+- Observa sesión activa, historial, total de agua del día y diagnósticos mediante Flow.
+- Las acciones de entrenamiento y agua pasan por el repository, con validación, estado de carga y ErrorManager.
+
+Repository -> Room:
+- AppModule crea myprogres.db con Room.databaseBuilder y proporciona OfflineProgressRepository como implementación de ProgressRepository.
+- OfflineProgressRepository usa WorkoutDao, WaterDao y ErrorLogDao para leer/escribir datos; no accede a red.
+- Entrenamiento: iniciar/terminar sesión, agregar series, observar sesión y leer historial.
+- Hidratación: insertar ingesta y observar suma diaria.
+- El modelo de dominio convierte filas Room a modelos para el ViewModel/UI.
+
+2. ROOM Y COHERENCIA CON ESQUEMA 1
+
+AppDatabase declara version = 1 y exportSchema = true. El esquema exportado app/schemas/com.example.myprogres.data.local.AppDatabase/1.json corresponde a:
+- workouts: id, startedAt, finishedAt, syncState.
+- workout_sets: id, workoutId, exerciseId, exerciseName, setNumber, weightKg, repetitions, recordedAt, syncState; FK a workouts con borrado en cascada e índices de workoutId y recordedAt.
+- water_intake: id, amountMl, loggedAt, syncState e índice loggedAt.
+- error_logs: errorId, createdAt, module, type, code, severity, operation, safeMessage, appVersion, syncState, attempts; índices createdAt y severity.
+
+Los campos, tipos, nulabilidad, índices, relación y tablas observadas en Entities.kt/DAO coinciden con el esquema exportado versión 1. Las consultas observadas usan columnas y tablas existentes; la fila de resumen mapea totalVolumeKg mediante @ColumnInfo.
+
+Las funciones locales siguen implementadas en Room: no se encontró código de escritura/lectura remota en producción. Las entidades incluyen marcadores syncState para una futura sincronización, pero los marcadores no realizan sincronización.
+
+3. FIREBASE Y CONFIGURACIÓN
+
+- gradle/libs.versions.toml declara firebaseBom = 34.16.0; las dependencias firebase-auth y firebase-firestore no fijan versiones individuales.
+- app/build.gradle.kts importa el BoM como platform, declara Authentication y Firestore, y aplica Google Services Plugin.
+- build.gradle.kts declara el plugin Google Services con apply false.
+- google-services.json contiene el package_name com.example.myprogres, igual que el applicationId/namespace declarado en app/build.gradle.kts.
+- La búsqueda estática en app/src/main no encontró referencias de código a FirebaseAuth, FirebaseFirestore, FirebaseApp, otros clientes Firebase ni a WorkManager/CoroutineWorker.
+- No se observó implementación de inicio de sesión, acceso a Firestore, worker, repositorio remoto ni sincronización automática. La inclusión de SDKs y configuración de Google Services no equivale a conectividad remota usada por la app.
+- En el árbol revisado no aparece firebase.json ni firestore.rules.
+
+Conclusión de seguridad actual: no hay una ruta de sincronización Firebase en el código de producción inspeccionado. No se observó envío de datos antes de autenticación/reglas porque esas operaciones aún no están implementadas.
+
+4. PRUEBAS Y CONFIGURACIÓN
+
+- Unitarias: JUnit, Robolectric y Compose UI test están en testImplementation. HomeScreenTest usa RobolectricTestRunner, SDK 35 y manifest de prueba. ProgressInputValidatorTest cubre entradas de series y agua. TestErrorLogRule registra inicio, éxito y stack trace de errores en el log de prueba.
+- Instrumentadas: AndroidJUnit4/Espresso/Compose UI test y Room testing están en androidTestImplementation. testInstrumentationRunner apunta a HiltTestRunner. RoomAndErrorLoggingTest crea una Room en memoria, verifica persistencia/consulta de entrenamiento-historial y comprobación de sanitización de error. TestErrorLogRule instrumentada escribe en Logcat y stderr.
+- Existen manifests de prueba en app/src/test/AndroidManifest.xml y app/src/test/resources/AndroidManifest.xml, ambos declarando androidx.activity.ComponentActivity. La configuración puede explicar por qué se intentó resolverla, pero no elimina por sí sola el fallo previamente registrado.
+- No ejecuté pruebas en esta revisión. En el historial previo consta un fallo de HomeScreenTest antes de sus aserciones porque Robolectric no podía resolver/iniciar androidx.activity.ComponentActivity. También consta que las pruebas instrumentadas anteriores pasaron en HONOR Magic8 Lite y que un subconjunto de pruebas unitarias pasó. Esos resultados históricos no se repitieron ahora.
+
+5. PROBLEMAS Y RIESGOS PENDIENTES
+
+- El historial no tiene pantalla/ruta propia; se presenta dentro de Progreso. Si el diseño requiere un apartado independiente de historial, falta navegación/pantalla separada.
+- observeTodayWater calcula el intervalo del día al crear el Flow. Si la app permanece abierta al pasar la medianoche, el intervalo podría quedarse apuntando al día anterior hasta recrear la observación/proceso.
+- El número setNumber se calcula leyendo el conteo y luego insertando en llamadas separadas, sin transacción visible. Acciones simultáneas podrían asignar el mismo número a dos series del mismo ejercicio.
+- La pantalla de diagnósticos expone un contador denominado pendingSyncCount, y hay estados syncState; como aún no existe worker, representan pendientes marcados, no una sincronización activa.
+- Firebase Auth/Firestore están como dependencias preparadas, pero no hay autenticación, reglas revisadas ni comportamiento remoto. No se debe añadir escritura remota hasta diseñar autenticación, reglas restrictivas por usuario y pruebas de permisos.
+- firebase-debug.log es un registro local del CLI y contiene datos identificables de la sesión/cuenta y respuestas de API. Evitar incluirlo en repositorios públicos o compartirlo sin depuración. El .gitignore revisado no incluye ese nombre.
+- google-services.json es configuración cliente de Firebase con identificadores/API key de cliente; no es credencial de servidor, pero debe corresponder al proyecto y conviene restringir la clave en Google Cloud según servicios/paquetes permitidos.
+
+6. RECOMENDACIÓN SOBRE QUÉ CONSERVAR
+
+Conservar:
+- La implementación local de Room, DAOs, entidades, AppDatabase, OfflineProgressRepository, ViewModel, pantallas y sus pruebas: sostiene entrenamiento, hidratación, progreso e historial offline.
+- El esquema Room versión 1 exportado, para referencia y migraciones futuras.
+- Los cambios Gradle de Firebase y google-services.json si la intención es mantener Firebase preparado: la configuración es consistente y no se halló uso remoto en código.
+- Los logs/reglas de pruebas y docs de QA, útiles para diagnosticar; corregir aparte el fallo Robolectric documentado.
+
+Tratar aparte:
+- firebase-debug.log: diagnóstico local, no requisito de app y potencialmente identificable.
+- app/build/outputs y otros directorios de build: productos generados por Gradle, no fuentes a aceptar como cambios de código.
+
+No se recomienda descartar ni reemplazar Room. La arquitectura local funciona como fuente de datos actual. Firebase está preparado a nivel de dependencias/configuración, pero la integración funcional y segura debe ser una etapa posterior.

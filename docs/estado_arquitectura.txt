@@ -1,0 +1,61 @@
+CIERRE DE ETAPA — ESTADO DE ARQUITECTURA MyProgres
+Fecha: 2026-11-07
+
+Alcance
+Documento de cierre basado en inspección estática. No se modificaron archivos funcionales, Room, configuración Gradle/Kotlin ni Firebase. No se implementó Firebase Auth, Firestore ni sincronización. Solo se creó este archivo de documentación.
+
+1. Arquitectura actual aprobada
+- Kotlin con Jetpack Compose y Material 3.
+- MVVM: MainActivity hospeda ProgressApp; ProgressViewModel expone ProgressUiState.
+- Repository: ProgressRepository es el contrato y OfflineProgressRepository la implementación actual.
+- Persistencia local: Room (myprogres.db) es el origen de datos de entrenamiento, hidratación, historial y errores.
+- Hilt provee Room, OfflineProgressRepository y ErrorManager.
+- UI recoge flujos con collectAsStateWithLifecycle.
+- El manejo de resultados/errores se centraliza mediante AppResult/ErrorManager y los errores se registran localmente.
+- Enfoque offline-first: las operaciones funcionales inspeccionadas leen y escriben en Room.
+- Room está en versión de esquema 1; el esquema exportado está bajo app/schemas.
+
+2. Funcionalidades locales presentes
+- Entrenamiento: iniciar/finalizar sesión, seleccionar ejercicio, registrar peso y repeticiones, consultar sesión activa y resumen/historial.
+- Hidratación: registrar cantidad de agua y observar el total del día.
+- Progreso: métricas y listado del historial incluidos en la sección Progreso. No existe una ruta separada de Historial.
+- Diagnóstico: consultar errores recientes y contadores locales de estados pendientes.
+- Validación de las entradas y pruebas con logs para inicio, éxito y fallo.
+- Los registros siguen guardándose localmente aunque no exista red.
+
+3. Firebase: estado diferido
+- Google Services Plugin 4.5.0 y Firebase BoM 34.16.0 permanecen declarados.
+- Authentication y Cloud Firestore están declarados como dependencias sin versión individual, gestionadas por el BoM.
+- google-services.json corresponde al applicationId com.example.myprogres.
+- No hay flujo de inicio de sesión, llamadas Firebase Auth/Firestore, repositorio remoto, worker ni sincronización automática en el código de producción inspeccionado.
+- Firebase queda preparado a nivel de Gradle/configuración. Su uso funcional queda pospuesto hasta una etapa explícita de autenticación, reglas de seguridad y pruebas.
+- Room y los datos locales no deben reemplazarse por Firebase.
+
+4. Deuda técnica registrada
+DT-01 — Actualizar hidratación al cruzar medianoche
+observeTodayWater construye límites diarios al crear la observación. Si el proceso permanece activo tras medianoche, podría seguir consultando el intervalo del día anterior hasta recrearse.
+
+DT-02 — Concurrencia al numerar series
+La lógica calcula el siguiente setNumber consultando el conteo y luego inserta. No se ve una transacción que agrupe ambas operaciones; dos registros concurrentes podrían recibir el mismo número.
+
+DT-03 — pendingSyncCount sin worker
+Hay campos/estados syncState y el contador pendingSyncCount, pero no existe WorkManager ni rutina que sincronice. Presentarlo como sincronización activa sería engañoso: actualmente solo son marcadores/contadores locales.
+
+DT-04 — HomeScreenTest falla en Robolectric
+En el registro previo se informó que HomeScreenTest.homeScreen_showsTrainingAndWaterSummary falla antes de las aserciones porque Robolectric no logra resolver/iniciar androidx.activity.ComponentActivity. No se reejecutaron pruebas durante este cierre. Debe investigarse y luego volver a ejecutar la suite unitaria.
+
+5. Prácticas de seguridad antes de Firebase funcional
+- No subir ni ejecutar escrituras remotas hasta definir autenticación, reglas Firestore restrictivas por usuario y pruebas negativas de permisos.
+- google-services.json es configuración cliente; evitar tratar su API key como secreto de servidor y restringirla según corresponda.
+- firebase-debug.log puede contener datos identificables de la sesión/CLI; no compartirlo públicamente sin depuración.
+
+6. Revisión de .gitignore y propuesta no aplicada
+Revisé el .gitignore de la raíz: actualmente NO contiene una regla para firebase-debug.log.
+Propuesta para revisión del usuario: añadir esta línea al .gitignore raíz:
+firebase-debug.log
+Esto evitaría que el registro local de Firebase CLI aparezca como archivo candidato a incluir en cambios. No apliqué la propuesta. El .gitignore permanece intacto.
+
+7. Recomendación de conservación
+Conservar Room, sus entidades/DAO/AppDatabase y esquema 1; el repositorio offline, ViewModel, pantallas y pruebas locales; y la configuración Firebase ya aprobada si se desea continuar con la etapa posterior.
+Mantener Auth/Firestore/sincronización fuera del flujo de la app hasta abordar seguridad y autorización.
+Resolver DT-04 y documentar/verificar las demás deudas en tareas separadas.
